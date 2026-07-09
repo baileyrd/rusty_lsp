@@ -111,17 +111,21 @@ let config: MyConfig = client
 Core navigation and editing requests (`hover`, `completion` + resolve,
 `definition`/`declaration`/`typeDefinition`/`implementation`, `references`,
 `documentSymbol`, `workspace/symbol`, `signatureHelp`, `codeAction` + resolve,
-`rename` + `prepareRename`, `workspace/executeCommand`) and notifications
+`rename` + `prepareRename`, `workspace/executeCommand`), editor-UX requests
+(`formatting`/`rangeFormatting`/`onTypeFormatting`, `foldingRange`,
+`selectionRange`, `codeLens` + resolve, `documentLink` + resolve,
+`documentColor`/`colorPresentation`, `semanticTokens` full/delta/range,
+`inlayHint` + resolve), and notifications
 (`didOpen`/`didChange`/`didClose`/`didSave`,
 `workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`)
-have typed trait methods. For anything else — formatting, code lenses,
-semantic tokens, and so on — override the escape hatches and advertise the
-capability through `ServerCapabilities::extra`:
+have typed trait methods. For anything else — call/type hierarchy, notebook
+sync, and so on — override the escape hatches and advertise the capability
+through `ServerCapabilities::extra`:
 
 ```rust,ignore
 async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Value> {
     match method {
-        "textDocument/formatting" => { /* deserialize params, return a JSON result */ }
+        "textDocument/prepareCallHierarchy" => { /* deserialize params, return a JSON result */ }
         other => Err(Error::method_not_found(other.to_owned())),
     }
 }

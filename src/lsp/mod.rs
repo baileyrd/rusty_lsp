@@ -12,13 +12,19 @@
 
 pub mod base;
 pub mod code_action;
+pub mod code_lens;
 pub mod diagnostics;
 pub mod document;
 pub mod enums;
 pub mod features;
+pub mod formatting;
+pub mod inlay_hint;
 pub mod lifecycle;
+pub mod links;
 pub mod progress;
+pub mod ranges;
 pub mod rename;
+pub mod semantic_tokens;
 pub mod signature;
 pub mod symbols;
 pub mod window;
@@ -32,6 +38,7 @@ pub use code_action::{
     CodeAction, CodeActionContext, CodeActionDisabled, CodeActionKind, CodeActionOptions,
     CodeActionOrCommand, CodeActionParams, Command, code_action_kind,
 };
+pub use code_lens::{CodeLens, CodeLensOptions, CodeLensParams};
 pub use diagnostics::{Diagnostic, PublishDiagnosticsParams};
 pub use document::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -39,25 +46,45 @@ pub use document::{
 };
 pub use enums::{
     CodeActionTriggerKind, CompletionItemKind, CompletionTriggerKind, DiagnosticSeverity,
-    FileChangeType, MarkupKind, MessageType, PositionEncodingKind, SignatureHelpTriggerKind,
-    SymbolKind, SymbolTag, TextDocumentSyncKind,
+    FileChangeType, InlayHintKind, MarkupKind, MessageType, PositionEncodingKind,
+    SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSyncKind,
 };
 pub use features::{
     CompletionContext, CompletionItem, CompletionList, CompletionParams, CompletionResponse,
     DefinitionParams, GotoDefinitionResponse, Hover, HoverParams, MarkupContent, ReferenceContext,
     ReferenceParams,
 };
+pub use formatting::{
+    DocumentFormattingParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, FormattingOptions,
+};
+pub use inlay_hint::{
+    InlayHint, InlayHintLabel, InlayHintLabelPart, InlayHintOptions, InlayHintParams,
+};
 pub use lifecycle::{
     ClientCapabilities, ClientInfo, CodeActionProviderCapability, CompletionOptions,
     InitializeParams, InitializeResult, RenameProviderCapability, ServerCapabilities, ServerInfo,
     SignatureHelpOptions,
+};
+pub use links::{
+    Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,
+    DocumentLink, DocumentLinkOptions, DocumentLinkParams,
 };
 pub use progress::{
     ProgressParams, ProgressToken, WorkDoneProgress, WorkDoneProgressBegin,
     WorkDoneProgressCancelParams, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
     WorkDoneProgressReport,
 };
+pub use ranges::{
+    FoldingRange, FoldingRangeKind, FoldingRangeParams, SelectionRange, SelectionRangeParams,
+    folding_range_kind,
+};
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
+pub use semantic_tokens::{
+    SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensDeltaResult,
+    SemanticTokensEdit, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensRangeParams,
+};
 pub use signature::{
     Documentation, ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpContext,
     SignatureHelpParams, SignatureInformation,

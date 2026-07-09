@@ -266,6 +266,16 @@ int_enum! {
     }
 }
 
+int_enum! {
+    /// The kind of an [`crate::lsp::InlayHint`], used by clients to style it.
+    pub enum InlayHintKind {
+        /// A type annotation, e.g. `: i32` after an inferred `let` binding.
+        Type = 1,
+        /// A parameter name annotation, e.g. `x:` before a positional argument.
+        Parameter = 2,
+    }
+}
+
 /// The format of a [`crate::lsp::MarkupContent`] value. Unlike the enums above
 /// this is encoded as a JSON string, so it uses a plain serde derive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

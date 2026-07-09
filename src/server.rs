@@ -18,12 +18,17 @@ use crate::client::Client;
 use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
-    CodeAction, CodeActionParams, CompletionItem, CompletionParams, DefinitionParams,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentSymbolParams, ExecuteCommandParams, HoverParams,
-    InitializeParams, MessageType, ReferenceParams, RenameParams, SignatureHelpParams,
-    TextDocumentPositionParams, WorkDoneProgressCancelParams, WorkspaceSymbolParams,
+    CodeAction, CodeActionParams, CodeLens, CodeLensParams, ColorPresentationParams,
+    CompletionItem, CompletionParams, DefinitionParams, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentColorParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
+    ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams, InlayHint,
+    InlayHintParams, MessageType, ReferenceParams, RenameParams, SelectionRangeParams,
+    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams,
+    SignatureHelpParams, TextDocumentPositionParams, WorkDoneProgressCancelParams,
+    WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
 use crate::transport;
@@ -428,6 +433,86 @@ async fn dispatch_request<B: LanguageServer>(
         "workspace/executeCommand" => to_json(
             &backend
                 .execute_command(parse_params::<ExecuteCommandParams>(params)?)
+                .await?,
+        ),
+        "textDocument/formatting" => to_json(
+            &backend
+                .formatting(parse_params::<DocumentFormattingParams>(params)?)
+                .await?,
+        ),
+        "textDocument/rangeFormatting" => to_json(
+            &backend
+                .range_formatting(parse_params::<DocumentRangeFormattingParams>(params)?)
+                .await?,
+        ),
+        "textDocument/onTypeFormatting" => to_json(
+            &backend
+                .on_type_formatting(parse_params::<DocumentOnTypeFormattingParams>(params)?)
+                .await?,
+        ),
+        "textDocument/foldingRange" => to_json(
+            &backend
+                .folding_range(parse_params::<FoldingRangeParams>(params)?)
+                .await?,
+        ),
+        "textDocument/selectionRange" => to_json(
+            &backend
+                .selection_range(parse_params::<SelectionRangeParams>(params)?)
+                .await?,
+        ),
+        "textDocument/codeLens" => to_json(
+            &backend
+                .code_lens(parse_params::<CodeLensParams>(params)?)
+                .await?,
+        ),
+        "codeLens/resolve" => to_json(
+            &backend
+                .code_lens_resolve(parse_params::<CodeLens>(params)?)
+                .await?,
+        ),
+        "textDocument/documentLink" => to_json(
+            &backend
+                .document_link(parse_params::<DocumentLinkParams>(params)?)
+                .await?,
+        ),
+        "documentLink/resolve" => to_json(
+            &backend
+                .document_link_resolve(parse_params::<DocumentLink>(params)?)
+                .await?,
+        ),
+        "textDocument/documentColor" => to_json(
+            &backend
+                .document_color(parse_params::<DocumentColorParams>(params)?)
+                .await?,
+        ),
+        "textDocument/colorPresentation" => to_json(
+            &backend
+                .color_presentation(parse_params::<ColorPresentationParams>(params)?)
+                .await?,
+        ),
+        "textDocument/semanticTokens/full" => to_json(
+            &backend
+                .semantic_tokens_full(parse_params::<SemanticTokensParams>(params)?)
+                .await?,
+        ),
+        "textDocument/semanticTokens/full/delta" => to_json(
+            &backend
+                .semantic_tokens_full_delta(parse_params::<SemanticTokensDeltaParams>(params)?)
+                .await?,
+        ),
+        "textDocument/semanticTokens/range" => to_json(
+            &backend
+                .semantic_tokens_range(parse_params::<SemanticTokensRangeParams>(params)?)
+                .await?,
+        ),
+        "textDocument/inlayHint" => to_json(
+            &backend
+                .inlay_hint(parse_params::<InlayHintParams>(params)?)
+                .await?,
+        ),
+        "inlayHint/resolve" => to_json(
+            &backend
+                .inlay_hint_resolve(parse_params::<InlayHint>(params)?)
                 .await?,
         ),
         _ => backend.handle_request(method, params).await,
