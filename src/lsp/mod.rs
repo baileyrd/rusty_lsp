@@ -17,6 +17,7 @@ pub mod diagnostics;
 pub mod document;
 pub mod enums;
 pub mod features;
+pub mod file_operations;
 pub mod formatting;
 pub mod inlay_hint;
 pub mod lifecycle;
@@ -48,17 +49,22 @@ pub use diagnostics::{
 };
 pub use document::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, TextDocumentContentChangeEvent,
+    DidSaveTextDocumentParams, TextDocumentContentChangeEvent, WillSaveTextDocumentParams,
 };
 pub use enums::{
     CodeActionTriggerKind, CompletionItemKind, CompletionTriggerKind, DiagnosticSeverity,
     FileChangeType, InlayHintKind, MarkupKind, MessageType, PositionEncodingKind,
-    SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSyncKind,
+    SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSaveReason, TextDocumentSyncKind,
 };
 pub use features::{
     CompletionContext, CompletionItem, CompletionList, CompletionParams, CompletionResponse,
     DefinitionParams, GotoDefinitionResponse, Hover, HoverParams, MarkupContent, ReferenceContext,
     ReferenceParams,
+};
+pub use file_operations::{
+    CreateFilesParams, DeleteFilesParams, FileCreate, FileDelete, FileOperationFilter,
+    FileOperationPattern, FileOperationRegistrationOptions, FileOperationsServerCapabilities,
+    FileRename, RenameFilesParams,
 };
 pub use formatting::{
     DocumentFormattingParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
@@ -70,7 +76,7 @@ pub use inlay_hint::{
 pub use lifecycle::{
     ClientCapabilities, ClientInfo, CodeActionProviderCapability, CompletionOptions,
     InitializeParams, InitializeResult, RenameProviderCapability, ServerCapabilities, ServerInfo,
-    SignatureHelpOptions,
+    SignatureHelpOptions, WorkspaceServerCapabilities,
 };
 pub use links::{
     Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,

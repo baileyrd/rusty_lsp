@@ -3,6 +3,7 @@
 use super::base::{
     Range, TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier,
 };
+use super::enums::TextDocumentSaveReason;
 use serde::{Deserialize, Serialize};
 
 /// Parameters of `textDocument/didOpen`.
@@ -56,4 +57,14 @@ pub struct DidSaveTextDocumentParams {
     /// include text on save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+}
+
+/// Parameters of `textDocument/willSave` and `textDocument/willSaveWaitUntil`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WillSaveTextDocumentParams {
+    /// The document about to be saved.
+    pub text_document: TextDocumentIdentifier,
+    /// What triggered the save.
+    pub reason: TextDocumentSaveReason,
 }
