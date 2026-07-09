@@ -288,6 +288,16 @@ int_enum! {
     }
 }
 
+int_enum! {
+    /// The kind of a [`crate::lsp::NotebookCell`].
+    pub enum NotebookCellKind {
+        /// A markup (prose/documentation) cell.
+        Markup = 1,
+        /// A code cell.
+        Code = 2,
+    }
+}
+
 /// The format of a [`crate::lsp::MarkupContent`] value. Unlike the enums above
 /// this is encoded as a JSON string, so it uses a plain serde derive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

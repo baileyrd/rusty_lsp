@@ -24,21 +24,22 @@ use crate::lsp::{
     CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, ColorInformation,
     ColorPresentation, ColorPresentationParams, CompletionItem, CompletionParams,
     CompletionResponse, CreateFilesParams, DefinitionParams, DeleteFilesParams,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
-    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandParams, FoldingRange, FoldingRangeParams,
-    FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
-    InitializeResult, InlayHint, InlayHintParams, Location, PrepareRenameResponse, ReferenceParams,
-    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
-    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams, SignatureHelp, SignatureHelpParams,
-    SymbolInformation, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
-    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
-    WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
-    WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbolParams,
+    DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
+    DidCloseTextDocumentParams, DidOpenNotebookDocumentParams, DidOpenTextDocumentParams,
+    DidSaveNotebookDocumentParams, DidSaveTextDocumentParams, DocumentColorParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink,
+    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, FoldingRange,
+    FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams,
+    InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
+    PrepareRenameResponse, ReferenceParams, RenameFilesParams, RenameParams, SelectionRange,
+    SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams, SemanticTokensDeltaResult,
+    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelp,
+    SignatureHelpParams, SymbolInformation, TextDocumentPositionParams, TextEdit,
+    TypeHierarchyItem, TypeHierarchyPrepareParams, TypeHierarchySubtypesParams,
+    TypeHierarchySupertypesParams, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use serde_json::Value;
 
@@ -602,6 +603,42 @@ pub trait LanguageServer: Send + Sync + 'static {
     /// ([`Client::log_trace`](crate::Client::log_trace)). The default is a
     /// no-op; override to actually gate what you log.
     fn set_trace(&self, params: SetTraceParams) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `notebookDocument/didOpen`.
+    fn did_open_notebook_document(
+        &self,
+        params: DidOpenNotebookDocumentParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `notebookDocument/didChange`.
+    fn did_change_notebook_document(
+        &self,
+        params: DidChangeNotebookDocumentParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `notebookDocument/didSave`.
+    fn did_save_notebook_document(
+        &self,
+        params: DidSaveNotebookDocumentParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `notebookDocument/didClose`.
+    fn did_close_notebook_document(
+        &self,
+        params: DidCloseNotebookDocumentParams,
+    ) -> impl Future<Output = ()> + Send {
         let _ = params;
         async {}
     }
