@@ -8,9 +8,10 @@ use serde_json::{Map, Value};
 
 /// Parameters of the `initialize` request.
 ///
-/// Only the broadly useful fields are modelled; unknown members (workspace
-/// folders, locale, trace level, …) are ignored on the way in. Inspect
-/// [`InitializeParams::capabilities`] for anything not surfaced here.
+/// Only the broadly useful fields are modelled as named fields; anything else
+/// the client sends (`workspaceFolders`, `trace`, `locale`, …) is preserved
+/// verbatim in [`extra`](Self::extra) rather than dropped, mirroring
+/// [`ServerCapabilities::extra`].
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
@@ -29,6 +30,35 @@ pub struct InitializeParams {
     /// Server-defined initialization options passed by the client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initialization_options: Option<Value>,
+    /// Any fields not modelled above (e.g. `workspaceFolders`, `trace`,
+    /// `locale`), preserved so backends can still read them.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extra_fields_round_trip() {
+        let value = json!({
+            "capabilities": {},
+            "workspaceFolders": [{"uri": "file:///a", "name": "a"}],
+            "trace": "off",
+        });
+        let params: InitializeParams = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(
+            params.extra.get("workspaceFolders"),
+            Some(&value["workspaceFolders"])
+        );
+        assert_eq!(params.extra.get("trace"), Some(&json!("off")));
+
+        let round_tripped = serde_json::to_value(&params).unwrap();
+        assert_eq!(round_tripped["workspaceFolders"], value["workspaceFolders"]);
+        assert_eq!(round_tripped["trace"], value["trace"]);
+    }
 }
 
 /// Information about the client implementation.

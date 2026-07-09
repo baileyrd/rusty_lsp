@@ -15,7 +15,7 @@
 //!   with the bookkeeping arranged so a request is answered exactly once.
 
 use crate::client::Client;
-use crate::error::{Error, Result};
+use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
     CompletionParams, DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -131,9 +131,29 @@ where
         let message = match transport::read_message(&mut reader).await {
             Ok(Some(message)) => message,
             Ok(None) => break Ok(()), // clean EOF at a frame boundary
+            // The frame itself was read intact (exactly `Content-Length` bytes
+            // consumed) but its body was not valid JSON, or classified to an
+            // invalid `Message` shape (e.g. a non-numeric/string id). The
+            // stream is not desynchronised, so report a Parse error for this
+            // message and keep the connection alive, per JSON-RPC/LSP.
+            Err(Error::Serde(err)) => {
+                let _ = out_tx.send(
+                    Response::error(
+                        None,
+                        ResponseError {
+                            code: codes::PARSE_ERROR,
+                            message: err.to_string(),
+                            data: None,
+                        },
+                    )
+                    .into(),
+                );
+                continue;
+            }
             Err(err) => {
-                // A framing error desynchronises the stream; we cannot safely
-                // continue. Surface it to the caller.
+                // A framing error (bad headers, mid-frame EOF, ...)
+                // desynchronises the stream; we cannot safely continue.
+                // Surface it to the caller.
                 break Err(err);
             }
         };
@@ -225,9 +245,9 @@ where
 
 /// Spawn a feature request handler as its own task.
 ///
-/// The task and any concurrent `$/cancelRequest` race to remove the id from
-/// [`InFlight`]; whoever wins sends the single response, guaranteeing a request
-/// is answered exactly once.
+/// The task, any concurrent `$/cancelRequest`, and the panic watcher below
+/// race to remove the id from [`InFlight`]; whoever wins sends the single
+/// response, guaranteeing a request is answered exactly once.
 fn spawn_request<B: LanguageServer>(
     backend: &Arc<B>,
     out_tx: &mpsc::UnboundedSender<Message>,
@@ -238,7 +258,7 @@ fn spawn_request<B: LanguageServer>(
     let method = req.method;
     let params = req.params;
     let backend = Arc::clone(backend);
-    let out_tx = out_tx.clone();
+    let handler_out_tx = out_tx.clone();
     let in_flight_for_task = Arc::clone(in_flight);
     let response_id = request_id.clone();
 
@@ -251,11 +271,32 @@ fn spawn_request<B: LanguageServer>(
                 Ok(value) => Response::success(response_id, value),
                 Err(err) => Response::error(Some(response_id), err.into_response_error()),
             };
-            let _ = out_tx.send(response.into());
+            let _ = handler_out_tx.send(response.into());
         }
     });
 
-    lock(in_flight).insert(request_id, join.abort_handle());
+    lock(in_flight).insert(request_id.clone(), join.abort_handle());
+
+    // A handler that panics unwinds before it can claim its `InFlight` entry
+    // or send a response, which would otherwise leave the request answered
+    // never. Watch the join and, if it failed because the handler panicked
+    // (not because a cancel aborted it first), answer with INTERNAL_ERROR.
+    let in_flight_for_watch = Arc::clone(in_flight);
+    let watch_out_tx = out_tx.clone();
+    tokio::spawn(async move {
+        if let Err(join_err) = join.await
+            && join_err.is_panic()
+            && lock(&in_flight_for_watch).remove(&request_id).is_some()
+        {
+            let _ = watch_out_tx.send(
+                Response::error(
+                    Some(request_id),
+                    Error::internal(format!("handler panicked: {join_err}")).into_response_error(),
+                )
+                .into(),
+            );
+        }
+    });
 }
 
 /// Handle `$/cancelRequest`: abort the named handler and reply with a
@@ -347,9 +388,11 @@ fn log_bad_params(client: &Client, method: &str, err: &Error) {
 }
 
 /// Deserialize request/notification params, mapping failures to
-/// [`Error::invalid_params`]. Absent params are treated as JSON `null`.
+/// [`Error::invalid_params`]. Per JSON-RPC, `params` is optional; absent
+/// params are treated as an empty JSON object so structs whose fields are
+/// all optional/defaultable still decode successfully.
 fn parse_params<T: DeserializeOwned>(params: Option<Value>) -> Result<T> {
-    serde_json::from_value(params.unwrap_or(Value::Null))
+    serde_json::from_value(params.unwrap_or_else(|| Value::Object(Default::default())))
         .map_err(|e| Error::invalid_params(e.to_string()))
 }
 
@@ -368,4 +411,29 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[derive(Debug, Default, PartialEq, Deserialize)]
+    struct AllOptionalParams {
+        #[serde(default)]
+        foo: Option<i32>,
+    }
+
+    #[test]
+    fn parse_params_treats_absent_params_as_empty_object() {
+        let parsed: AllOptionalParams = parse_params(None).expect("absent params should default");
+        assert_eq!(parsed, AllOptionalParams::default());
+    }
+
+    #[test]
+    fn parse_params_still_rejects_wrong_shape() {
+        let err = parse_params::<AllOptionalParams>(Some(Value::Bool(true)))
+            .expect_err("a bool is not a valid params object");
+        assert!(matches!(err, Error::Response(e) if e.code == crate::error::codes::INVALID_PARAMS));
+    }
 }
