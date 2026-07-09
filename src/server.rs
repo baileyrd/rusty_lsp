@@ -18,10 +18,12 @@ use crate::client::Client;
 use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
-    CompletionParams, DefinitionParams, DidChangeTextDocumentParams,
+    CodeAction, CodeActionParams, CompletionItem, CompletionParams, DefinitionParams,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, HoverParams, InitializeParams, MessageType,
-    WorkDoneProgressCancelParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, ExecuteCommandParams, HoverParams,
+    InitializeParams, MessageType, ReferenceParams, RenameParams, SignatureHelpParams,
+    TextDocumentPositionParams, WorkDoneProgressCancelParams, WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
 use crate::transport;
@@ -363,6 +365,71 @@ async fn dispatch_request<B: LanguageServer>(
                 .definition(parse_params::<DefinitionParams>(params)?)
                 .await?,
         ),
+        "textDocument/declaration" => to_json(
+            &backend
+                .declaration(parse_params::<TextDocumentPositionParams>(params)?)
+                .await?,
+        ),
+        "textDocument/typeDefinition" => to_json(
+            &backend
+                .type_definition(parse_params::<TextDocumentPositionParams>(params)?)
+                .await?,
+        ),
+        "textDocument/implementation" => to_json(
+            &backend
+                .implementation(parse_params::<TextDocumentPositionParams>(params)?)
+                .await?,
+        ),
+        "textDocument/references" => to_json(
+            &backend
+                .references(parse_params::<ReferenceParams>(params)?)
+                .await?,
+        ),
+        "completionItem/resolve" => to_json(
+            &backend
+                .completion_resolve(parse_params::<CompletionItem>(params)?)
+                .await?,
+        ),
+        "textDocument/documentSymbol" => to_json(
+            &backend
+                .document_symbol(parse_params::<DocumentSymbolParams>(params)?)
+                .await?,
+        ),
+        "workspace/symbol" => to_json(
+            &backend
+                .symbol(parse_params::<WorkspaceSymbolParams>(params)?)
+                .await?,
+        ),
+        "textDocument/signatureHelp" => to_json(
+            &backend
+                .signature_help(parse_params::<SignatureHelpParams>(params)?)
+                .await?,
+        ),
+        "textDocument/codeAction" => to_json(
+            &backend
+                .code_action(parse_params::<CodeActionParams>(params)?)
+                .await?,
+        ),
+        "codeAction/resolve" => to_json(
+            &backend
+                .code_action_resolve(parse_params::<CodeAction>(params)?)
+                .await?,
+        ),
+        "textDocument/rename" => to_json(
+            &backend
+                .rename(parse_params::<RenameParams>(params)?)
+                .await?,
+        ),
+        "textDocument/prepareRename" => to_json(
+            &backend
+                .prepare_rename(parse_params::<TextDocumentPositionParams>(params)?)
+                .await?,
+        ),
+        "workspace/executeCommand" => to_json(
+            &backend
+                .execute_command(parse_params::<ExecuteCommandParams>(params)?)
+                .await?,
+        ),
         _ => backend.handle_request(method, params).await,
     }
 }
@@ -404,6 +471,18 @@ async fn dispatch_notification<B: LanguageServer>(
         "window/workDoneProgress/cancel" => {
             match parse_params::<WorkDoneProgressCancelParams>(params) {
                 Ok(p) => backend.work_done_progress_cancel(p).await,
+                Err(err) => log_bad_params(client, method, &err),
+            }
+        }
+        "workspace/didChangeConfiguration" => {
+            match parse_params::<DidChangeConfigurationParams>(params) {
+                Ok(p) => backend.did_change_configuration(p).await,
+                Err(err) => log_bad_params(client, method, &err),
+            }
+        }
+        "workspace/didChangeWatchedFiles" => {
+            match parse_params::<DidChangeWatchedFilesParams>(params) {
+                Ok(p) => backend.did_change_watched_files(p).await,
                 Err(err) => log_bad_params(client, method, &err),
             }
         }

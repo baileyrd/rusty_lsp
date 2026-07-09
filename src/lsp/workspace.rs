@@ -1,7 +1,9 @@
 //! `workspace/*` types: multi-root workspace folders, pulling client
-//! configuration, and applying edits back to the client's buffers.
+//! configuration, applying edits back to the client's buffers, watched-file
+//! change notifications, and command execution.
 
 use super::base::{Range, Uri};
+use super::enums::FileChangeType;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -128,6 +130,51 @@ pub struct ApplyWorkspaceEditResult {
     pub failed_change: Option<u32>,
 }
 
+/// Parameters of the `workspace/didChangeConfiguration` notification.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DidChangeConfigurationParams {
+    /// The new configuration settings. The shape is entirely server-defined,
+    /// so it round-trips as raw JSON.
+    pub settings: Value,
+}
+
+/// Parameters of the `workspace/didChangeWatchedFiles` notification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DidChangeWatchedFilesParams {
+    /// The files that changed.
+    pub changes: Vec<FileEvent>,
+}
+
+/// One watched file's change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileEvent {
+    /// The file's URI.
+    pub uri: Uri,
+    /// How the file changed.
+    #[serde(rename = "type")]
+    pub typ: FileChangeType,
+}
+
+/// Parameters of the `workspace/executeCommand` request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecuteCommandParams {
+    /// The command identifier, one of the strings the server advertised in
+    /// [`ExecuteCommandOptions::commands`].
+    pub command: String,
+    /// Arguments for the command, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<Value>>,
+}
+
+/// Options describing the server's `workspace/executeCommand` support,
+/// advertised in [`crate::lsp::ServerCapabilities::execute_command_provider`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteCommandOptions {
+    /// The command identifiers the server accepts.
+    pub commands: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::base::Position;
@@ -161,5 +208,15 @@ mod tests {
         );
         let value = serde_json::to_value(&edit).unwrap();
         assert_eq!(value["changes"]["file:///a"][0]["newText"], json!("x"));
+    }
+
+    #[test]
+    fn file_event_type_uses_type_keyword() {
+        let event = FileEvent {
+            uri: "file:///a".to_owned(),
+            typ: FileChangeType::Changed,
+        };
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value, json!({"uri": "file:///a", "type": 2}));
     }
 }

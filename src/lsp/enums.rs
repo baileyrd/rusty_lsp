@@ -162,6 +162,110 @@ int_enum! {
     }
 }
 
+int_enum! {
+    /// How a watched file changed, reported in a [`crate::lsp::FileEvent`].
+    pub enum FileChangeType {
+        /// The file was created.
+        Created = 1,
+        /// The file's content changed.
+        Changed = 2,
+        /// The file was deleted.
+        Deleted = 3,
+    }
+}
+
+int_enum! {
+    /// The semantic kind of a symbol, used by
+    /// [`crate::lsp::DocumentSymbol`] and [`crate::lsp::SymbolInformation`].
+    pub enum SymbolKind {
+        /// A file.
+        File = 1,
+        /// A module.
+        Module = 2,
+        /// A namespace.
+        Namespace = 3,
+        /// A package.
+        Package = 4,
+        /// A class.
+        Class = 5,
+        /// A method.
+        Method = 6,
+        /// A property.
+        Property = 7,
+        /// A field.
+        Field = 8,
+        /// A constructor.
+        Constructor = 9,
+        /// An enum.
+        Enum = 10,
+        /// An interface.
+        Interface = 11,
+        /// A function.
+        Function = 12,
+        /// A variable.
+        Variable = 13,
+        /// A constant.
+        Constant = 14,
+        /// A string literal.
+        String = 15,
+        /// A numeric literal.
+        Number = 16,
+        /// A boolean literal.
+        Boolean = 17,
+        /// An array.
+        Array = 18,
+        /// An object.
+        Object = 19,
+        /// A key in a map/object.
+        Key = 20,
+        /// A null literal.
+        Null = 21,
+        /// An enum member.
+        EnumMember = 22,
+        /// A struct.
+        Struct = 23,
+        /// An event.
+        Event = 24,
+        /// An operator.
+        Operator = 25,
+        /// A type parameter.
+        TypeParameter = 26,
+    }
+}
+
+int_enum! {
+    /// A tag modifying how a symbol is rendered, e.g. struck through for
+    /// [`Deprecated`](SymbolTag::Deprecated).
+    pub enum SymbolTag {
+        /// Render the symbol as deprecated.
+        Deprecated = 1,
+    }
+}
+
+int_enum! {
+    /// What triggered a `textDocument/codeAction` request.
+    pub enum CodeActionTriggerKind {
+        /// Explicitly invoked (e.g. the editor's code action menu).
+        Invoked = 1,
+        /// Triggered automatically, e.g. due to cursor movement over a
+        /// diagnostic's range.
+        Automatic = 2,
+    }
+}
+
+int_enum! {
+    /// What triggered a `textDocument/signatureHelp` request.
+    pub enum SignatureHelpTriggerKind {
+        /// Explicitly invoked (e.g. via a keybinding or the API).
+        Invoked = 1,
+        /// Triggered by a trigger character.
+        TriggerCharacter = 2,
+        /// Triggered because the cursor moved into a new parameter of an
+        /// already-showing signature.
+        ContentChange = 3,
+    }
+}
+
 /// The format of a [`crate::lsp::MarkupContent`] value. Unlike the enums above
 /// this is encoded as a JSON string, so it uses a plain serde derive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

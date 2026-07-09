@@ -108,10 +108,15 @@ let config: MyConfig = client
 
 ### Handling methods the framework doesn't model
 
-Common requests (`hover`, `completion`, `definition`) and notifications
-(`didOpen`/`didChange`/`didClose`/`didSave`) have typed trait methods. For
-anything else, override the escape hatches and advertise the capability through
-`ServerCapabilities::extra`:
+Core navigation and editing requests (`hover`, `completion` + resolve,
+`definition`/`declaration`/`typeDefinition`/`implementation`, `references`,
+`documentSymbol`, `workspace/symbol`, `signatureHelp`, `codeAction` + resolve,
+`rename` + `prepareRename`, `workspace/executeCommand`) and notifications
+(`didOpen`/`didChange`/`didClose`/`didSave`,
+`workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`)
+have typed trait methods. For anything else — formatting, code lenses,
+semantic tokens, and so on — override the escape hatches and advertise the
+capability through `ServerCapabilities::extra`:
 
 ```rust,ignore
 async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Value> {

@@ -19,10 +19,14 @@
 
 use crate::error::{Error, Result};
 use crate::lsp::{
-    CompletionParams, CompletionResponse, DefinitionParams, DidChangeTextDocumentParams,
-    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
-    InitializeResult, WorkDoneProgressCancelParams,
+    CodeAction, CodeActionOrCommand, CodeActionParams, CompletionItem, CompletionParams,
+    CompletionResponse, DefinitionParams, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionResponse,
+    Hover, HoverParams, InitializeParams, InitializeResult, Location, PrepareRenameResponse,
+    ReferenceParams, RenameParams, SignatureHelp, SignatureHelpParams, SymbolInformation,
+    TextDocumentPositionParams, WorkDoneProgressCancelParams, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use serde_json::Value;
 
@@ -104,6 +108,149 @@ pub trait LanguageServer: Send + Sync + 'static {
         &self,
         params: DefinitionParams,
     ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/declaration`.
+    fn declaration(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/typeDefinition`.
+    fn type_definition(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/implementation`.
+    fn implementation(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/references`.
+    fn references(
+        &self,
+        params: ReferenceParams,
+    ) -> impl Future<Output = Result<Option<Vec<Location>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `completionItem/resolve`.
+    ///
+    /// The default returns `item` unchanged, which is only correct if
+    /// completion's `resolve_provider` is left unset/`false` in
+    /// [`crate::lsp::CompletionOptions`] — override this alongside
+    /// advertising resolve support.
+    fn completion_resolve(
+        &self,
+        item: CompletionItem,
+    ) -> impl Future<Output = Result<CompletionItem>> + Send {
+        async { Ok(item) }
+    }
+
+    /// Handle `textDocument/documentSymbol`.
+    fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> impl Future<Output = Result<Option<DocumentSymbolResponse>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `workspace/symbol`.
+    fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> impl Future<Output = Result<Option<Vec<SymbolInformation>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/signatureHelp`.
+    fn signature_help(
+        &self,
+        params: SignatureHelpParams,
+    ) -> impl Future<Output = Result<Option<SignatureHelp>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/codeAction`.
+    fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> impl Future<Output = Result<Option<Vec<CodeActionOrCommand>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `codeAction/resolve`.
+    ///
+    /// The default returns `action` unchanged, which is only correct if
+    /// [`crate::lsp::ServerCapabilities::code_action_provider`]'s resolve
+    /// support is left unset/`false` — override this alongside advertising
+    /// resolve support.
+    fn code_action_resolve(
+        &self,
+        action: CodeAction,
+    ) -> impl Future<Output = Result<CodeAction>> + Send {
+        async { Ok(action) }
+    }
+
+    /// Handle `textDocument/rename`.
+    fn rename(
+        &self,
+        params: RenameParams,
+    ) -> impl Future<Output = Result<Option<WorkspaceEdit>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/prepareRename`.
+    fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> impl Future<Output = Result<Option<PrepareRenameResponse>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `workspace/didChangeConfiguration`.
+    fn did_change_configuration(
+        &self,
+        params: DidChangeConfigurationParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `workspace/didChangeWatchedFiles`.
+    fn did_change_watched_files(
+        &self,
+        params: DidChangeWatchedFilesParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `workspace/executeCommand`.
+    fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> impl Future<Output = Result<Option<Value>>> + Send {
         let _ = params;
         async { Ok(None) }
     }
