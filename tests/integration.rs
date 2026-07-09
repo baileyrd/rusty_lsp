@@ -8,22 +8,23 @@
 use rusty_lsp::error::{Result, codes};
 use rusty_lsp::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use rusty_lsp::lsp::{
-    CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, Color,
-    ColorInformation, ColorPresentation, ColorPresentationParams, CompletionItem,
-    CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse, ConfigurationItem,
-    CreateFilesParams, DeleteFilesParams, Diagnostic, DiagnosticSeverity,
+    ClientCapabilities, CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens,
+    CodeLensParams, Color, ColorInformation, ColorPresentation, ColorPresentationParams,
+    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
+    ConfigurationItem, CreateFilesParams, DeleteFilesParams, Diagnostic, DiagnosticSeverity,
     DidChangeConfigurationParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
     DidOpenTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
     DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
     DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbol,
     DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, FoldingRange,
     FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location, MessageType,
-    Position, PrepareRenameResponse, Range, ReferenceParams, RenameFilesParams, RenameParams,
-    SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
-    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, ServerCapabilities,
-    ServerInfo, SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation,
-    SymbolKind, TextDocumentPositionParams, TextDocumentSyncKind, TextEdit,
+    InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location, MessageActionItem,
+    MessageType, Position, PrepareRenameResponse, Range, ReferenceParams, Registration,
+    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
+    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
+    SemanticTokensRangeParams, ServerCapabilities, ServerInfo, ShowDocumentParams, SignatureHelp,
+    SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, Unregistration,
     WillSaveTextDocumentParams, WorkDoneProgressBegin, WorkDoneProgressCancelParams,
     WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceDiagnosticParams,
     WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport, WorkspaceEdit,
@@ -42,6 +43,7 @@ use tokio::task::JoinHandle;
 struct TestBackend {
     client: Client,
     documents: RwLock<HashMap<String, String>>,
+    client_capabilities: RwLock<Option<ClientCapabilities>>,
 }
 
 impl TestBackend {
@@ -49,12 +51,14 @@ impl TestBackend {
         TestBackend {
             client,
             documents: RwLock::new(HashMap::new()),
+            client_capabilities: RwLock::new(None),
         }
     }
 }
 
 impl LanguageServer for TestBackend {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        *self.client_capabilities.write().await = Some(params.capabilities);
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncKind::Full),
@@ -172,6 +176,71 @@ impl LanguageServer for TestBackend {
                 self.client
                     .send_progress("partial-1", vec!["chunk-1", "chunk-2"])?;
                 Ok(json!("done"))
+            }
+            // Exercises `Client::show_message_request`.
+            "test/show_message_request" => {
+                let choice = self
+                    .client
+                    .show_message_request(
+                        MessageType::Info,
+                        "pick one",
+                        vec![
+                            MessageActionItem {
+                                title: "Yes".to_owned(),
+                            },
+                            MessageActionItem {
+                                title: "No".to_owned(),
+                            },
+                        ],
+                    )
+                    .await?;
+                Ok(serde_json::to_value(choice)?)
+            }
+            // Exercises `Client::show_document`.
+            "test/show_document" => {
+                let result = self
+                    .client
+                    .show_document(ShowDocumentParams {
+                        uri: "file:///a".to_owned(),
+                        external: None,
+                        take_focus: Some(true),
+                        selection: None,
+                    })
+                    .await?;
+                Ok(serde_json::to_value(result)?)
+            }
+            // Exercises `Client::register_capability`.
+            "test/register_capability" => {
+                self.client
+                    .register_capability(vec![Registration::new(
+                        "reg-1",
+                        "textDocument/formatting",
+                        None,
+                    )])
+                    .await?;
+                Ok(json!("registered"))
+            }
+            // Exercises `Client::unregister_capability`.
+            "test/unregister_capability" => {
+                self.client
+                    .unregister_capability(vec![Unregistration {
+                        id: "reg-1".to_owned(),
+                        method: "textDocument/formatting".to_owned(),
+                    }])
+                    .await?;
+                Ok(json!("unregistered"))
+            }
+            // Exercises `ClientCapabilities::get`/`supports` against the
+            // capabilities captured during `initialize`.
+            "test/capability_query" => {
+                let capabilities = self.client_capabilities.read().await;
+                let capabilities = capabilities.as_ref().expect("initialized");
+                Ok(json!({
+                    "hoverSupported": capabilities.supports("textDocument.hover"),
+                    "applyEditSupported": capabilities.supports("workspace.applyEdit"),
+                    "definitionSupported": capabilities.supports("textDocument.definition"),
+                    "applyEditValue": capabilities.get("workspace.applyEdit"),
+                }))
             }
             other => Err(Error::method_not_found(other.to_owned())),
         }
@@ -1608,6 +1677,100 @@ async fn partial_result_streaming_sends_progress_notification() {
 
     let response = harness.recv_response(&id).await;
     assert_eq!(response.result, Some(json!("done")));
+}
+
+#[tokio::test]
+async fn show_message_request_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request("test/show_message_request", json!({}))
+        .await;
+
+    let request = harness.recv_request("window/showMessageRequest").await;
+    let params = request.params.expect("params");
+    assert_eq!(params["type"], json!(3));
+    assert_eq!(params["message"], json!("pick one"));
+    assert_eq!(params["actions"][0]["title"], json!("Yes"));
+    assert_eq!(params["actions"][1]["title"], json!("No"));
+    harness.respond(request.id, json!({"title": "Yes"})).await;
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result, Some(json!({"title": "Yes"})));
+}
+
+#[tokio::test]
+async fn show_document_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/show_document", json!({})).await;
+
+    let request = harness.recv_request("window/showDocument").await;
+    let params = request.params.expect("params");
+    assert_eq!(params["uri"], json!("file:///a"));
+    assert_eq!(params["takeFocus"], json!(true));
+    harness.respond(request.id, json!({"success": true})).await;
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result, Some(json!({"success": true})));
+}
+
+#[tokio::test]
+async fn register_and_unregister_capability_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let register_id = harness.request("test/register_capability", json!({})).await;
+    let register_request = harness.recv_request("client/registerCapability").await;
+    let params = register_request.params.expect("params");
+    assert_eq!(
+        params["registrations"][0]["method"],
+        json!("textDocument/formatting")
+    );
+    harness.respond(register_request.id, Value::Null).await;
+    let response = harness.recv_response(&register_id).await;
+    assert_eq!(response.result, Some(json!("registered")));
+
+    let unregister_id = harness
+        .request("test/unregister_capability", json!({}))
+        .await;
+    let unregister_request = harness.recv_request("client/unregisterCapability").await;
+    let params = unregister_request.params.expect("params");
+    // The spec's field name is missing an "r" -- verify the wire shape
+    // matches it exactly, not the more natural "unregistrations".
+    assert_eq!(params["unregisterations"][0]["id"], json!("reg-1"));
+    assert!(params.get("unregistrations").is_none());
+    harness.respond(unregister_request.id, Value::Null).await;
+    let response = harness.recv_response(&unregister_id).await;
+    assert_eq!(response.result, Some(json!("unregistered")));
+}
+
+#[tokio::test]
+async fn client_capabilities_query_walks_dotted_paths() {
+    let mut harness = Harness::start();
+    let init_id = harness
+        .request(
+            "initialize",
+            json!({
+                "capabilities": {
+                    "textDocument": {"hover": {"dynamicRegistration": true}},
+                    "workspace": {"applyEdit": true},
+                },
+            }),
+        )
+        .await;
+    harness.recv_response(&init_id).await;
+    harness.notify("initialized", json!({})).await;
+
+    let id = harness.request("test/capability_query", json!({})).await;
+    let response = harness.recv_response(&id).await;
+    let result = response.result.expect("result");
+    assert_eq!(result["hoverSupported"], json!(true));
+    assert_eq!(result["applyEditSupported"], json!(true));
+    assert_eq!(result["definitionSupported"], json!(false));
+    assert_eq!(result["applyEditValue"], json!(true));
 }
 
 #[tokio::test]

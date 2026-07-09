@@ -89,6 +89,28 @@ mod tests {
         // Not duplicated into `extra`.
         assert!(params.extra.get("workspaceFolders").is_none());
     }
+
+    #[test]
+    fn client_capabilities_get_and_supports_walk_dotted_paths() {
+        let caps: ClientCapabilities = serde_json::from_value(json!({
+            "textDocument": {
+                "definition": {"linkSupport": true},
+                "publishDiagnostics": {"versionSupport": false},
+                "hover": {},
+            },
+        }))
+        .unwrap();
+
+        assert_eq!(
+            caps.get("textDocument.definition.linkSupport"),
+            Some(&json!(true))
+        );
+        assert!(caps.supports("textDocument.definition.linkSupport"));
+        assert!(caps.supports("textDocument.hover")); // present, non-bool -> "yes"
+        assert!(!caps.supports("textDocument.publishDiagnostics.versionSupport"));
+        assert!(!caps.supports("textDocument.codeAction")); // missing entirely
+        assert!(!caps.supports("workspace.applyEdit")); // missing top-level segment
+    }
 }
 
 /// Information about the client implementation.
@@ -105,13 +127,41 @@ pub struct ClientInfo {
 ///
 /// The capability tree is large and evolves with the spec, so it is kept as a
 /// raw JSON object. Backends that need to branch on a specific capability can
-/// inspect [`ClientCapabilities::raw`] directly; the whole structure round-trips
-/// losslessly.
+/// inspect [`ClientCapabilities::raw`] directly, or use
+/// [`get`](Self::get)/[`supports`](Self::supports) to walk a dotted path
+/// without hand-rolling the `Map`/`Value` traversal; the whole structure
+/// round-trips losslessly either way.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ClientCapabilities {
     /// The full, untyped capability object as sent by the client.
     pub raw: Map<String, Value>,
+}
+
+impl ClientCapabilities {
+    /// Look up a dotted path into the raw capability tree, e.g.
+    /// `"textDocument.definition.linkSupport"`. Returns `None` if any
+    /// segment is missing.
+    pub fn get(&self, path: &str) -> Option<&Value> {
+        let mut segments = path.split('.');
+        let mut value = self.raw.get(segments.next()?)?;
+        for segment in segments {
+            value = value.as_object()?.get(segment)?;
+        }
+        Some(value)
+    }
+
+    /// Whether `path` (see [`get`](Self::get)) resolves to a "yes" — either
+    /// the JSON literal `true`, or any present, non-`null`, non-`false`
+    /// value (the spec often signals "supported" with a nested options
+    /// object rather than a bare boolean, e.g.
+    /// `textDocument.publishDiagnostics.versionSupport`).
+    pub fn supports(&self, path: &str) -> bool {
+        !matches!(
+            self.get(path),
+            None | Some(Value::Null) | Some(Value::Bool(false))
+        )
+    }
 }
 
 /// Result of the `initialize` request.
