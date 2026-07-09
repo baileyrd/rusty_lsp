@@ -46,7 +46,7 @@ tagged release:
 
 ```toml
 [dependencies]
-rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.1.0" }
+rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.1.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
