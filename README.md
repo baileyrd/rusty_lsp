@@ -40,13 +40,16 @@ build one on top of.
 
 ## Adding the dependency
 
-`rusty_lsp` is not published to crates.io; depend on it by path or git:
+`rusty_lsp` distributes via pinned git tags, not crates.io. Depend on a
+tagged release:
 
 ```toml
 [dependencies]
-rusty_lsp = { path = "../rusty_lsp" }
+rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.1.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
+
+(A path dependency works too during local development: `rusty_lsp = { path = "../rusty_lsp" }`.)
 
 Requires a Rust toolchain supporting **edition 2024** (Rust 1.85+).
 
