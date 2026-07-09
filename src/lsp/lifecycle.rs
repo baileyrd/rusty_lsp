@@ -7,6 +7,7 @@ use super::diagnostics::DiagnosticOptions;
 use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
 use super::file_operations::FileOperationsServerCapabilities;
 use super::formatting::DocumentOnTypeFormattingOptions;
+use super::hierarchy::{CallHierarchyOptions, TypeHierarchyOptions};
 use super::inlay_hint::InlayHintOptions;
 use super::links::DocumentLinkOptions;
 use super::semantic_tokens::SemanticTokensOptions;
@@ -281,6 +282,12 @@ pub struct ServerCapabilities {
     /// [`file_operations`](WorkspaceServerCapabilities::file_operations)).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceServerCapabilities>,
+    /// Call-hierarchy support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_hierarchy_provider: Option<CallHierarchyProviderCapability>,
+    /// Type-hierarchy support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_hierarchy_provider: Option<TypeHierarchyProviderCapability>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -353,5 +360,41 @@ pub enum RenameProviderCapability {
 impl Default for RenameProviderCapability {
     fn default() -> Self {
         RenameProviderCapability::Simple(false)
+    }
+}
+
+/// Either a plain boolean or [`CallHierarchyOptions`], matching the spec's
+/// `boolean | CallHierarchyOptions | CallHierarchyRegistrationOptions` shape
+/// for `callHierarchyProvider`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CallHierarchyProviderCapability {
+    /// `true`/`false`: call hierarchy is (not) supported.
+    Simple(bool),
+    /// Call hierarchy is supported with the given options.
+    Options(CallHierarchyOptions),
+}
+
+impl Default for CallHierarchyProviderCapability {
+    fn default() -> Self {
+        CallHierarchyProviderCapability::Simple(false)
+    }
+}
+
+/// Either a plain boolean or [`TypeHierarchyOptions`], matching the spec's
+/// `boolean | TypeHierarchyOptions | TypeHierarchyRegistrationOptions` shape
+/// for `typeHierarchyProvider`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TypeHierarchyProviderCapability {
+    /// `true`/`false`: type hierarchy is (not) supported.
+    Simple(bool),
+    /// Type hierarchy is supported with the given options.
+    Options(TypeHierarchyOptions),
+}
+
+impl Default for TypeHierarchyProviderCapability {
+    fn default() -> Self {
+        TypeHierarchyProviderCapability::Simple(false)
     }
 }

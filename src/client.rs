@@ -9,8 +9,8 @@ use crate::error::{Error, Result};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
     ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ConfigurationItem, ConfigurationParams,
-    Diagnostic, LogMessageParams, MessageActionItem, MessageType, ProgressParams, ProgressToken,
-    PublishDiagnosticsParams, Registration, RegistrationParams, ShowDocumentParams,
+    Diagnostic, LogMessageParams, LogTraceParams, MessageActionItem, MessageType, ProgressParams,
+    ProgressToken, PublishDiagnosticsParams, Registration, RegistrationParams, ShowDocumentParams,
     ShowDocumentResult, ShowMessageParams, ShowMessageRequestParams, Unregistration,
     UnregistrationParams, Uri, WorkDoneProgress, WorkDoneProgressBegin,
     WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
@@ -194,6 +194,22 @@ impl Client {
             },
         )
         .await
+    }
+
+    /// Send a `$/logTrace` notification: a protocol-level trace message,
+    /// gated by the verbosity the client most recently set via
+    /// `$/setTrace` (see
+    /// [`LanguageServer::set_trace`](crate::LanguageServer::set_trace)).
+    /// Distinct from [`log_message`](Self::log_message), which is ordinary
+    /// user-facing logging.
+    pub fn log_trace(&self, message: impl Into<String>, verbose: Option<String>) -> Result<()> {
+        self.notify(
+            "$/logTrace",
+            LogTraceParams {
+                message: message.into(),
+                verbose,
+            },
+        )
     }
 
     /// Ask the client to reserve `token` for a subsequent work-done-progress

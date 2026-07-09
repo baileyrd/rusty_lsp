@@ -19,6 +19,8 @@
 
 use crate::error::{Error, Result};
 use crate::lsp::{
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, ColorInformation,
     ColorPresentation, ColorPresentationParams, CompletionItem, CompletionParams,
     CompletionResponse, CreateFilesParams, DefinitionParams, DeleteFilesParams,
@@ -32,9 +34,11 @@ use crate::lsp::{
     InitializeResult, InlayHint, InlayHintParams, Location, PrepareRenameResponse, ReferenceParams,
     RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
     SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
-    SemanticTokensRangeParams, SignatureHelp, SignatureHelpParams, SymbolInformation,
-    TextDocumentPositionParams, TextEdit, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbolParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelp, SignatureHelpParams,
+    SymbolInformation, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
+    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
+    WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use serde_json::Value;
 
@@ -535,6 +539,69 @@ pub trait LanguageServer: Send + Sync + 'static {
     /// Handle `workspace/didDeleteFiles`, sent after the client deleted
     /// files.
     fn did_delete_files(&self, params: DeleteFilesParams) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `textDocument/prepareCallHierarchy`.
+    fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> impl Future<Output = Result<Option<Vec<CallHierarchyItem>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `callHierarchy/incomingCalls`.
+    fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> impl Future<Output = Result<Option<Vec<CallHierarchyIncomingCall>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `callHierarchy/outgoingCalls`.
+    fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> impl Future<Output = Result<Option<Vec<CallHierarchyOutgoingCall>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/prepareTypeHierarchy`.
+    fn prepare_type_hierarchy(
+        &self,
+        params: TypeHierarchyPrepareParams,
+    ) -> impl Future<Output = Result<Option<Vec<TypeHierarchyItem>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `typeHierarchy/supertypes`.
+    fn supertypes(
+        &self,
+        params: TypeHierarchySupertypesParams,
+    ) -> impl Future<Output = Result<Option<Vec<TypeHierarchyItem>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `typeHierarchy/subtypes`.
+    fn subtypes(
+        &self,
+        params: TypeHierarchySubtypesParams,
+    ) -> impl Future<Output = Result<Option<Vec<TypeHierarchyItem>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `$/setTrace`, sent when the user changes the trace verbosity
+    /// the client wants reported via `$/logTrace`
+    /// ([`Client::log_trace`](crate::Client::log_trace)). The default is a
+    /// no-op; override to actually gate what you log.
+    fn set_trace(&self, params: SetTraceParams) -> impl Future<Output = ()> + Send {
         let _ = params;
         async {}
     }
