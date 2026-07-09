@@ -462,6 +462,54 @@ async fn cancel_request_aborts_and_responds() {
 }
 
 #[tokio::test]
+async fn duplicate_request_id_is_rejected_without_disturbing_the_original() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // Kick off a slow, still-outstanding request.
+    let id = RequestId::Number(999);
+    harness
+        .send(Message::Request(Request {
+            id: id.clone(),
+            method: "test/sleep".to_owned(),
+            params: Some(json!({})),
+        }))
+        .await;
+
+    // A second request reusing that same still-outstanding id (a client
+    // protocol violation) must be rejected outright, not silently corrupt
+    // the first request's cancellation/response bookkeeping.
+    harness
+        .send(Message::Request(Request {
+            id: id.clone(),
+            method: "textDocument/hover".to_owned(),
+            params: Some(position_params("file:///a", 0, 0)),
+        }))
+        .await;
+    let duplicate_response = harness.recv_response(&id).await;
+    assert_eq!(
+        duplicate_response.error.expect("error").code,
+        codes::INVALID_REQUEST
+    );
+
+    // The original request's InFlight entry is untouched: cancelling it
+    // still works, proving it was never stolen by the duplicate.
+    let RequestId::Number(numeric_id) = id.clone() else {
+        unreachable!("ids are numeric in this harness");
+    };
+    harness
+        .notify("$/cancelRequest", json!({ "id": numeric_id }))
+        .await;
+    let cancel_response = tokio::time::timeout(Duration::from_secs(5), harness.recv_response(&id))
+        .await
+        .expect("cancellation response should arrive promptly");
+    assert_eq!(
+        cancel_response.error.expect("error").code,
+        codes::REQUEST_CANCELLED
+    );
+}
+
+#[tokio::test]
 async fn shutdown_rejects_further_requests_then_exit_stops_server() {
     let mut harness = Harness::start();
     harness.initialize().await;
