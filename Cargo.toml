@@ -1,6 +1,6 @@
 [package]
 name = "rusty_lsp"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A small, reusable async Language Server Protocol framework. Own the protocol plumbing; implement one trait for your language."
 license = "MIT OR Apache-2.0"
