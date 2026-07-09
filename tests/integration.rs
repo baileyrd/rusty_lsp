@@ -8,15 +8,20 @@
 use rusty_lsp::error::{Result, codes};
 use rusty_lsp::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use rusty_lsp::lsp::{
-    CodeAction, CodeActionOrCommand, CodeActionParams, CompletionItem, CompletionItemKind,
-    CompletionOptions, CompletionParams, CompletionResponse, ConfigurationItem, Diagnostic,
-    DiagnosticSeverity, DidChangeConfigurationParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidOpenTextDocumentParams, DocumentSymbol,
-    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionResponse,
-    Hover, HoverParams, InitializeParams, InitializeResult, Location, MessageType, Position,
-    PrepareRenameResponse, Range, ReferenceParams, RenameParams, ServerCapabilities, ServerInfo,
-    SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
-    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
+    CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, Color,
+    ColorInformation, ColorPresentation, ColorPresentationParams, CompletionItem,
+    CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse, ConfigurationItem,
+    Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidOpenTextDocumentParams, DocumentColorParams,
+    DocumentFormattingParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
+    ExecuteCommandParams, FoldingRange, FoldingRangeParams, GotoDefinitionResponse, Hover,
+    HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
+    MessageType, Position, PrepareRenameResponse, Range, ReferenceParams, RenameParams,
+    SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
+    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, ServerCapabilities,
+    ServerInfo, SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation,
+    SymbolKind, TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
     WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
     WorkspaceSymbolParams, code_action_kind,
 };
@@ -296,6 +301,156 @@ impl LanguageServer for TestBackend {
             MessageType::Info,
             format!("watched files changed: {}", params.changes.len()),
         );
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        Ok(Some(vec![TextEdit::new(
+            zero_range(),
+            format!("formatted(tabSize={})", params.options.tab_size),
+        )]))
+    }
+
+    async fn range_formatting(
+        &self,
+        _params: DocumentRangeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        Ok(Some(vec![TextEdit::new(zero_range(), "range-formatted")]))
+    }
+
+    async fn on_type_formatting(
+        &self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        Ok(Some(vec![TextEdit::new(
+            zero_range(),
+            format!("on-type-formatted({})", params.ch),
+        )]))
+    }
+
+    async fn folding_range(
+        &self,
+        _params: FoldingRangeParams,
+    ) -> Result<Option<Vec<FoldingRange>>> {
+        Ok(Some(vec![FoldingRange::new(0, 3)]))
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        Ok(Some(
+            params
+                .positions
+                .into_iter()
+                .map(|_| SelectionRange {
+                    range: zero_range(),
+                    parent: None,
+                })
+                .collect(),
+        ))
+    }
+
+    async fn code_lens(&self, _params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        Ok(Some(vec![CodeLens::new(zero_range())]))
+    }
+
+    async fn code_lens_resolve(&self, lens: CodeLens) -> Result<CodeLens> {
+        Ok(CodeLens {
+            command: Some(rusty_lsp::lsp::Command {
+                title: "Run".to_owned(),
+                command: "my.run".to_owned(),
+                arguments: None,
+            }),
+            ..lens
+        })
+    }
+
+    async fn document_link(
+        &self,
+        _params: DocumentLinkParams,
+    ) -> Result<Option<Vec<DocumentLink>>> {
+        Ok(Some(vec![DocumentLink {
+            range: zero_range(),
+            target: None,
+            tooltip: None,
+            data: None,
+        }]))
+    }
+
+    async fn document_link_resolve(&self, link: DocumentLink) -> Result<DocumentLink> {
+        Ok(DocumentLink {
+            target: Some("file:///resolved".to_owned()),
+            ..link
+        })
+    }
+
+    async fn document_color(&self, _params: DocumentColorParams) -> Result<Vec<ColorInformation>> {
+        Ok(vec![ColorInformation {
+            range: zero_range(),
+            color: Color {
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+                alpha: 1.0,
+            },
+        }])
+    }
+
+    async fn color_presentation(
+        &self,
+        params: ColorPresentationParams,
+    ) -> Result<Vec<ColorPresentation>> {
+        Ok(vec![ColorPresentation {
+            label: format!(
+                "rgb({}, {}, {})",
+                params.color.red, params.color.green, params.color.blue
+            ),
+            text_edit: None,
+            additional_text_edits: None,
+        }])
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        _params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokens>> {
+        Ok(Some(SemanticTokens {
+            result_id: Some("1".to_owned()),
+            data: vec![0, 0, 3, 0, 0],
+        }))
+    }
+
+    async fn semantic_tokens_full_delta(
+        &self,
+        _params: SemanticTokensDeltaParams,
+    ) -> Result<Option<SemanticTokensDeltaResult>> {
+        Ok(Some(SemanticTokensDeltaResult::Tokens(SemanticTokens {
+            result_id: Some("2".to_owned()),
+            data: vec![1, 0, 4, 1, 0],
+        })))
+    }
+
+    async fn semantic_tokens_range(
+        &self,
+        _params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokens>> {
+        Ok(Some(SemanticTokens {
+            result_id: None,
+            data: vec![0, 0, 2, 2, 0],
+        }))
+    }
+
+    async fn inlay_hint(&self, _params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        Ok(Some(vec![InlayHint::new(Position::new(0, 0), ": i32")]))
+    }
+
+    async fn inlay_hint_resolve(&self, hint: InlayHint) -> Result<InlayHint> {
+        Ok(InlayHint {
+            tooltip: Some(rusty_lsp::lsp::Documentation::plain_text(
+                "resolved tooltip",
+            )),
+            ..hint
+        })
     }
 }
 
@@ -761,10 +916,235 @@ async fn did_change_watched_files_notification_is_routed() {
 }
 
 #[tokio::test]
+async fn formatting_family_returns_text_edits() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/formatting",
+            json!({"textDocument": {"uri": "file:///a.txt"}, "options": {"tabSize": 4, "insertSpaces": true}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")[0]["newText"],
+        json!("formatted(tabSize=4)")
+    );
+
+    let id = harness
+        .request(
+            "textDocument/rangeFormatting",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+                "options": {"tabSize": 2, "insertSpaces": false},
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")[0]["newText"],
+        json!("range-formatted")
+    );
+
+    let mut params = position_params("file:///a.txt", 0, 0);
+    params["ch"] = json!("}");
+    params["options"] = json!({"tabSize": 4, "insertSpaces": true});
+    let id = harness
+        .request("textDocument/onTypeFormatting", params)
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")[0]["newText"],
+        json!("on-type-formatted(})")
+    );
+}
+
+#[tokio::test]
+async fn folding_range_and_selection_range_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/foldingRange",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let ranges = response.result.expect("result");
+    assert_eq!(ranges[0]["startLine"], json!(0));
+    assert_eq!(ranges[0]["endLine"], json!(3));
+    assert!(ranges[0].get("startCharacter").is_none());
+
+    let id = harness
+        .request(
+            "textDocument/selectionRange",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "positions": [{"line": 0, "character": 0}],
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let ranges = response.result.expect("result");
+    assert_eq!(ranges.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn code_lens_and_resolve_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/codeLens",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let lenses = response.result.expect("result");
+    assert!(lenses[0].get("command").is_none());
+
+    let resolve_id = harness.request("codeLens/resolve", lenses[0].clone()).await;
+    let resolved = harness.recv_response(&resolve_id).await;
+    assert_eq!(
+        resolved.result.expect("result")["command"]["command"],
+        json!("my.run")
+    );
+}
+
+#[tokio::test]
+async fn document_link_resolve_and_color_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/documentLink",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let links = response.result.expect("result");
+    assert!(links[0].get("target").is_none());
+
+    let resolve_id = harness
+        .request("documentLink/resolve", links[0].clone())
+        .await;
+    let resolved = harness.recv_response(&resolve_id).await;
+    assert_eq!(
+        resolved.result.expect("result")["target"],
+        json!("file:///resolved")
+    );
+
+    let id = harness
+        .request(
+            "textDocument/documentColor",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let colors = response.result.expect("result");
+    assert_eq!(colors[0]["color"]["red"], json!(1.0));
+
+    let id = harness
+        .request(
+            "textDocument/colorPresentation",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "color": {"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")[0]["label"],
+        json!("rgb(1, 0, 0)")
+    );
+}
+
+#[tokio::test]
+async fn semantic_tokens_full_delta_and_range_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/semanticTokens/full",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["data"],
+        json!([0, 0, 3, 0, 0])
+    );
+
+    let id = harness
+        .request(
+            "textDocument/semanticTokens/full/delta",
+            json!({"textDocument": {"uri": "file:///a.txt"}, "previousResultId": "1"}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["data"],
+        json!([1, 0, 4, 1, 0])
+    );
+
+    let id = harness
+        .request(
+            "textDocument/semanticTokens/range",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["data"],
+        json!([0, 0, 2, 2, 0])
+    );
+}
+
+#[tokio::test]
+async fn inlay_hint_and_resolve_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/inlayHint",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let hints = response.result.expect("result");
+    assert_eq!(hints[0]["label"], json!(": i32"));
+    assert!(hints[0].get("tooltip").is_none());
+
+    let resolve_id = harness.request("inlayHint/resolve", hints[0].clone()).await;
+    let resolved = harness.recv_response(&resolve_id).await;
+    assert_eq!(
+        resolved.result.expect("result")["tooltip"],
+        json!("resolved tooltip")
+    );
+}
+
+#[tokio::test]
 async fn unknown_method_yields_method_not_found() {
     let mut harness = Harness::start();
     harness.initialize().await;
-    let id = harness.request("textDocument/formatting", json!({})).await;
+    let id = harness
+        .request("textDocument/prepareCallHierarchy", json!({}))
+        .await;
     let response = harness.recv_response(&id).await;
     assert_eq!(response.error.expect("error").code, codes::METHOD_NOT_FOUND);
 }

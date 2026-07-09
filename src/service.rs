@@ -19,14 +19,20 @@
 
 use crate::error::{Error, Result};
 use crate::lsp::{
-    CodeAction, CodeActionOrCommand, CodeActionParams, CompletionItem, CompletionParams,
+    CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, ColorInformation,
+    ColorPresentation, ColorPresentationParams, CompletionItem, CompletionParams,
     CompletionResponse, DefinitionParams, DidChangeConfigurationParams,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionResponse,
-    Hover, HoverParams, InitializeParams, InitializeResult, Location, PrepareRenameResponse,
-    ReferenceParams, RenameParams, SignatureHelp, SignatureHelpParams, SymbolInformation,
-    TextDocumentPositionParams, WorkDoneProgressCancelParams, WorkspaceEdit, WorkspaceSymbolParams,
+    DocumentColorParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandParams, FoldingRange, FoldingRangeParams,
+    GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, InlayHint,
+    InlayHintParams, Location, PrepareRenameResponse, ReferenceParams, RenameParams,
+    SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
+    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelp,
+    SignatureHelpParams, SymbolInformation, TextDocumentPositionParams, TextEdit,
+    WorkDoneProgressCancelParams, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use serde_json::Value;
 
@@ -276,11 +282,164 @@ pub trait LanguageServer: Send + Sync + 'static {
         async {}
     }
 
+    /// Handle `textDocument/formatting`.
+    fn formatting(
+        &self,
+        params: DocumentFormattingParams,
+    ) -> impl Future<Output = Result<Option<Vec<TextEdit>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/rangeFormatting`.
+    fn range_formatting(
+        &self,
+        params: DocumentRangeFormattingParams,
+    ) -> impl Future<Output = Result<Option<Vec<TextEdit>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/onTypeFormatting`.
+    fn on_type_formatting(
+        &self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> impl Future<Output = Result<Option<Vec<TextEdit>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/foldingRange`.
+    fn folding_range(
+        &self,
+        params: FoldingRangeParams,
+    ) -> impl Future<Output = Result<Option<Vec<FoldingRange>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/selectionRange`.
+    fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> impl Future<Output = Result<Option<Vec<SelectionRange>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/codeLens`.
+    fn code_lens(
+        &self,
+        params: CodeLensParams,
+    ) -> impl Future<Output = Result<Option<Vec<CodeLens>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `codeLens/resolve`.
+    ///
+    /// The default returns `lens` unchanged, which is only correct if
+    /// [`crate::lsp::ServerCapabilities::code_lens_provider`]'s resolve
+    /// support is left unset/`false` — override this alongside advertising
+    /// resolve support.
+    fn code_lens_resolve(&self, lens: CodeLens) -> impl Future<Output = Result<CodeLens>> + Send {
+        async { Ok(lens) }
+    }
+
+    /// Handle `textDocument/documentLink`.
+    fn document_link(
+        &self,
+        params: DocumentLinkParams,
+    ) -> impl Future<Output = Result<Option<Vec<DocumentLink>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `documentLink/resolve`.
+    ///
+    /// The default returns `link` unchanged, which is only correct if
+    /// [`crate::lsp::ServerCapabilities::document_link_provider`]'s resolve
+    /// support is left unset/`false` — override this alongside advertising
+    /// resolve support.
+    fn document_link_resolve(
+        &self,
+        link: DocumentLink,
+    ) -> impl Future<Output = Result<DocumentLink>> + Send {
+        async { Ok(link) }
+    }
+
+    /// Handle `textDocument/documentColor`.
+    fn document_color(
+        &self,
+        params: DocumentColorParams,
+    ) -> impl Future<Output = Result<Vec<ColorInformation>>> + Send {
+        let _ = params;
+        async { Ok(Vec::new()) }
+    }
+
+    /// Handle `textDocument/colorPresentation`.
+    fn color_presentation(
+        &self,
+        params: ColorPresentationParams,
+    ) -> impl Future<Output = Result<Vec<ColorPresentation>>> + Send {
+        let _ = params;
+        async { Ok(Vec::new()) }
+    }
+
+    /// Handle `textDocument/semanticTokens/full`.
+    fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> impl Future<Output = Result<Option<SemanticTokens>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/semanticTokens/full/delta`.
+    fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> impl Future<Output = Result<Option<SemanticTokensDeltaResult>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/semanticTokens/range`.
+    fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> impl Future<Output = Result<Option<SemanticTokens>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/inlayHint`.
+    fn inlay_hint(
+        &self,
+        params: InlayHintParams,
+    ) -> impl Future<Output = Result<Option<Vec<InlayHint>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `inlayHint/resolve`.
+    ///
+    /// The default returns `hint` unchanged, which is only correct if
+    /// [`crate::lsp::ServerCapabilities::inlay_hint_provider`]'s resolve
+    /// support is left unset/`false` — override this alongside advertising
+    /// resolve support.
+    fn inlay_hint_resolve(
+        &self,
+        hint: InlayHint,
+    ) -> impl Future<Output = Result<InlayHint>> + Send {
+        async { Ok(hint) }
+    }
+
     /// Fallback for request methods the framework does not model.
     ///
-    /// Override to support additional typed requests (formatting, code actions,
-    /// references, …). Deserialize `params` yourself and return a JSON value to
-    /// be sent as the result. The default reports
+    /// Override to support additional typed requests (call hierarchy,
+    /// notebook sync, …). Deserialize `params` yourself and return a JSON
+    /// value to be sent as the result. The default reports
     /// [`METHOD_NOT_FOUND`](crate::error::codes::METHOD_NOT_FOUND).
     fn handle_request(
         &self,

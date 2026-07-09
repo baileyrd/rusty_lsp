@@ -2,7 +2,12 @@
 //! capability negotiation that rides along with them.
 
 use super::base::Uri;
+use super::code_lens::CodeLensOptions;
 use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
+use super::formatting::DocumentOnTypeFormattingOptions;
+use super::inlay_hint::InlayHintOptions;
+use super::links::DocumentLinkOptions;
+use super::semantic_tokens::SemanticTokensOptions;
 use super::workspace::{ExecuteCommandOptions, WorkspaceFolder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -185,6 +190,37 @@ pub struct ServerCapabilities {
     /// Command-execution support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execute_command_provider: Option<ExecuteCommandOptions>,
+    /// Whether the server provides whole-document formatting support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_formatting_provider: Option<bool>,
+    /// Whether the server provides range-formatting support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_range_formatting_provider: Option<bool>,
+    /// On-type formatting support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_on_type_formatting_provider: Option<DocumentOnTypeFormattingOptions>,
+    /// Whether the server provides folding-range support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folding_range_provider: Option<bool>,
+    /// Whether the server provides selection-range support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_range_provider: Option<bool>,
+    /// Code-lens support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_lens_provider: Option<CodeLensOptions>,
+    /// Document-link support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_link_provider: Option<DocumentLinkOptions>,
+    /// Whether the server provides document-color/color-presentation
+    /// support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_provider: Option<bool>,
+    /// Semantic-tokens support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_tokens_provider: Option<SemanticTokensOptions>,
+    /// Inlay-hint support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inlay_hint_provider: Option<InlayHintOptions>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
