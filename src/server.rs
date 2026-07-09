@@ -21,17 +21,19 @@ use crate::lsp::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CodeAction, CodeActionParams, CodeLens, CodeLensParams, ColorPresentationParams,
     CompletionItem, CompletionParams, CreateFilesParams, DefinitionParams, DeleteFilesParams,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
-    DocumentFormattingParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
-    DocumentRangeFormattingParams, DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams,
-    HoverParams, InitializeParams, InlayHint, InlayHintParams, MessageType, ReferenceParams,
-    RenameFilesParams, RenameParams, SelectionRangeParams, SemanticTokensDeltaParams,
-    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
-    TextDocumentPositionParams, TypeHierarchyPrepareParams, TypeHierarchySubtypesParams,
-    TypeHierarchySupertypesParams, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
-    WorkspaceDiagnosticParams, WorkspaceSymbolParams,
+    DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
+    DidCloseTextDocumentParams, DidOpenNotebookDocumentParams, DidOpenTextDocumentParams,
+    DidSaveNotebookDocumentParams, DidSaveTextDocumentParams, DocumentColorParams,
+    DocumentDiagnosticParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
+    ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams, InlayHint,
+    InlayHintParams, MessageType, ReferenceParams, RenameFilesParams, RenameParams,
+    SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, TextDocumentPositionParams,
+    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
+    WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
+    WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
 use crate::transport;
@@ -654,6 +656,26 @@ async fn dispatch_notification<B: LanguageServer>(
             Ok(p) => backend.set_trace(p).await,
             Err(err) => log_bad_params(client, method, &err),
         },
+        "notebookDocument/didOpen" => match parse_params::<DidOpenNotebookDocumentParams>(params) {
+            Ok(p) => backend.did_open_notebook_document(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
+        "notebookDocument/didChange" => {
+            match parse_params::<DidChangeNotebookDocumentParams>(params) {
+                Ok(p) => backend.did_change_notebook_document(p).await,
+                Err(err) => log_bad_params(client, method, &err),
+            }
+        }
+        "notebookDocument/didSave" => match parse_params::<DidSaveNotebookDocumentParams>(params) {
+            Ok(p) => backend.did_save_notebook_document(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
+        "notebookDocument/didClose" => {
+            match parse_params::<DidCloseNotebookDocumentParams>(params) {
+                Ok(p) => backend.did_close_notebook_document(p).await,
+                Err(err) => log_bad_params(client, method, &err),
+            }
+        }
         _ => backend.handle_notification(method, params).await,
     }
 }

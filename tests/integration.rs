@@ -14,24 +14,27 @@ use rusty_lsp::lsp::{
     CodeLensParams, Color, ColorInformation, ColorPresentation, ColorPresentationParams,
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     ConfigurationItem, CreateFilesParams, DeleteFilesParams, Diagnostic, DiagnosticSeverity,
-    DidChangeConfigurationParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
-    DidOpenTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
-    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbol,
-    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, FoldingRange,
-    FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location, MessageActionItem,
-    MessageType, Position, PrepareRenameResponse, Range, ReferenceParams, Registration,
-    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
-    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
+    DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams, DidOpenNotebookDocumentParams,
+    DidOpenTextDocumentParams, DidSaveNotebookDocumentParams, DocumentColorParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink,
+    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams,
+    FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover,
+    HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
+    MessageActionItem, MessageType, NotebookCell, NotebookCellKind, NotebookDocument,
+    NotebookDocumentIdentifier, Position, PrepareRenameResponse, Range, ReferenceParams,
+    Registration, RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams,
+    SemanticTokens, SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
     SemanticTokensRangeParams, ServerCapabilities, ServerInfo, SetTraceParams, ShowDocumentParams,
     SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
     TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, TypeHierarchyItem,
     TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
-    Unregistration, WillSaveTextDocumentParams, WorkDoneProgressBegin,
-    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
-    WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbolParams, code_action_kind,
+    Unregistration, VersionedNotebookDocumentIdentifier, WillSaveTextDocumentParams,
+    WorkDoneProgressBegin, WorkDoneProgressCancelParams, WorkDoneProgressEnd,
+    WorkDoneProgressReport, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    WorkspaceDocumentDiagnosticReport, WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport,
+    WorkspaceSymbolParams, code_action_kind,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -429,6 +432,41 @@ impl LanguageServer for TestBackend {
         let _ = self.client.log_message(
             MessageType::Info,
             format!("trace set to {:?}", params.value),
+        );
+    }
+
+    async fn did_open_notebook_document(&self, params: DidOpenNotebookDocumentParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!(
+                "notebook opened: {} ({} cells)",
+                params.notebook_document.uri,
+                params.notebook_document.cells.len()
+            ),
+        );
+    }
+
+    async fn did_change_notebook_document(&self, params: DidChangeNotebookDocumentParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!(
+                "notebook changed: {} -> v{}",
+                params.notebook_document.uri, params.notebook_document.version
+            ),
+        );
+    }
+
+    async fn did_save_notebook_document(&self, params: DidSaveNotebookDocumentParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!("notebook saved: {}", params.notebook_document.uri),
+        );
+    }
+
+    async fn did_close_notebook_document(&self, params: DidCloseNotebookDocumentParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!("notebook closed: {}", params.notebook_document.uri),
         );
     }
 
@@ -1210,6 +1248,98 @@ async fn set_trace_notification_is_routed() {
 }
 
 #[tokio::test]
+async fn notebook_document_sync_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let notebook = NotebookDocument {
+        uri: "file:///a.ipynb".to_owned(),
+        notebook_type: "jupyter-notebook".to_owned(),
+        version: 1,
+        metadata: None,
+        cells: vec![NotebookCell {
+            kind: NotebookCellKind::Code,
+            document: "file:///a.ipynb#cell1".to_owned(),
+            metadata: None,
+            execution_summary: None,
+        }],
+    };
+
+    harness
+        .notify(
+            "notebookDocument/didOpen",
+            json!({
+                "notebookDocument": notebook,
+                "cellTextDocuments": [{
+                    "uri": "file:///a.ipynb#cell1",
+                    "languageId": "python",
+                    "version": 1,
+                    "text": "print('hi')",
+                }],
+            }),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert!(
+        note.params.expect("params")["message"]
+            .as_str()
+            .unwrap()
+            .contains("file:///a.ipynb")
+    );
+
+    harness
+        .notify(
+            "notebookDocument/didChange",
+            json!({
+                "notebookDocument": VersionedNotebookDocumentIdentifier {
+                    version: 2,
+                    uri: "file:///a.ipynb".to_owned(),
+                },
+                "change": {},
+            }),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert!(
+        note.params.expect("params")["message"]
+            .as_str()
+            .unwrap()
+            .contains("v2")
+    );
+
+    harness
+        .notify(
+            "notebookDocument/didSave",
+            json!({"notebookDocument": NotebookDocumentIdentifier { uri: "file:///a.ipynb".to_owned() }}),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert!(
+        note.params.expect("params")["message"]
+            .as_str()
+            .unwrap()
+            .contains("saved")
+    );
+
+    harness
+        .notify(
+            "notebookDocument/didClose",
+            json!({
+                "notebookDocument": NotebookDocumentIdentifier { uri: "file:///a.ipynb".to_owned() },
+                "cellTextDocuments": [{"uri": "file:///a.ipynb#cell1"}],
+            }),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert!(
+        note.params.expect("params")["message"]
+            .as_str()
+            .unwrap()
+            .contains("closed")
+    );
+}
+
+#[tokio::test]
 async fn execute_command_runs_and_returns_a_result() {
     let mut harness = Harness::start();
     harness.initialize().await;
@@ -1489,7 +1619,7 @@ async fn inlay_hint_and_resolve_round_trip() {
 async fn unknown_method_yields_method_not_found() {
     let mut harness = Harness::start();
     harness.initialize().await;
-    let id = harness.request("notebookDocument/didOpen", json!({})).await;
+    let id = harness.request("textDocument/moniker", json!({})).await;
     let response = harness.recv_response(&id).await;
     assert_eq!(response.error.expect("error").code, codes::METHOD_NOT_FOUND);
 }

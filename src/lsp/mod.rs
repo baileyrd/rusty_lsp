@@ -23,6 +23,7 @@ pub mod hierarchy;
 pub mod inlay_hint;
 pub mod lifecycle;
 pub mod links;
+pub mod notebook;
 pub mod progress;
 pub mod ranges;
 pub mod registration;
@@ -56,7 +57,7 @@ pub use document::{
 };
 pub use enums::{
     CodeActionTriggerKind, CompletionItemKind, CompletionTriggerKind, DiagnosticSeverity,
-    FileChangeType, InlayHintKind, MarkupKind, MessageType, PositionEncodingKind,
+    FileChangeType, InlayHintKind, MarkupKind, MessageType, NotebookCellKind, PositionEncodingKind,
     SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSaveReason, TextDocumentSyncKind,
 };
 pub use features::{
@@ -91,6 +92,13 @@ pub use lifecycle::{
 pub use links::{
     Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,
     DocumentLink, DocumentLinkOptions, DocumentLinkParams,
+};
+pub use notebook::{
+    DidChangeNotebookDocumentParams, DidCloseNotebookDocumentParams, DidOpenNotebookDocumentParams,
+    DidSaveNotebookDocumentParams, ExecutionSummary, NotebookCell, NotebookCellArrayChange,
+    NotebookCellTextContentChange, NotebookDocument, NotebookDocumentCellChanges,
+    NotebookDocumentCellStructureChange, NotebookDocumentChangeEvent, NotebookDocumentIdentifier,
+    NotebookDocumentSyncOptions, VersionedNotebookDocumentIdentifier,
 };
 pub use progress::{
     PartialResultParams, ProgressParams, ProgressToken, WorkDoneProgress, WorkDoneProgressBegin,

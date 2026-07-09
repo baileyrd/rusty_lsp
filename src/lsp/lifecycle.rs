@@ -10,6 +10,7 @@ use super::formatting::DocumentOnTypeFormattingOptions;
 use super::hierarchy::{CallHierarchyOptions, TypeHierarchyOptions};
 use super::inlay_hint::InlayHintOptions;
 use super::links::DocumentLinkOptions;
+use super::notebook::NotebookDocumentSyncOptions;
 use super::semantic_tokens::SemanticTokensOptions;
 use super::workspace::{ExecuteCommandOptions, WorkspaceFolder};
 use serde::{Deserialize, Serialize};
@@ -288,6 +289,9 @@ pub struct ServerCapabilities {
     /// Type-hierarchy support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_hierarchy_provider: Option<TypeHierarchyProviderCapability>,
+    /// Notebook-document sync support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notebook_document_sync: Option<NotebookDocumentSyncOptions>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
