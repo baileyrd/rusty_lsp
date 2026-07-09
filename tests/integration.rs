@@ -88,6 +88,10 @@ impl LanguageServer for TestBackend {
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 Ok(json!("slept"))
             }
+            // A deliberately panicking method, used to test that a handler
+            // panic still yields a response instead of hanging the request
+            // forever. The panic backtrace printed by this test is expected.
+            "test/panic" => panic!("intentional panic for test coverage"),
             other => Err(Error::method_not_found(other.to_owned())),
         }
     }
@@ -395,6 +399,63 @@ async fn shutdown_rejects_further_requests_then_exit_stops_server() {
         .expect("server should stop after exit")
         .expect("server task did not panic");
     assert!(outcome.is_ok());
+}
+
+#[tokio::test]
+async fn malformed_json_body_gets_parse_error_and_connection_survives() {
+    use tokio::io::AsyncWriteExt;
+
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // A syntactically invalid JSON body behind a *correct* Content-Length
+    // header: the frame boundary is intact, so this must not desynchronise
+    // or kill the connection -- it should just produce a Parse error.
+    let body = b"{not valid json}";
+    let header = format!("Content-Length: {}\r\n\r\n", body.len());
+    harness
+        .to_server
+        .write_all(header.as_bytes())
+        .await
+        .unwrap();
+    harness.to_server.write_all(body).await.unwrap();
+    harness.to_server.flush().await.unwrap();
+
+    let parse_error = loop {
+        if let Message::Response(response) = harness.recv().await
+            && response.id.is_none()
+        {
+            break response;
+        }
+    };
+    assert_eq!(
+        parse_error.error.expect("parse error").code,
+        codes::PARSE_ERROR
+    );
+
+    // The connection is still alive: a well-formed request right behind the
+    // malformed one still gets a normal response.
+    harness.open("file:///still-alive.txt", "hello").await;
+    let id = harness
+        .request(
+            "textDocument/hover",
+            position_params("file:///still-alive.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert!(response.error.is_none());
+}
+
+#[tokio::test]
+async fn panicking_handler_receives_internal_error_response() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/panic", json!({})).await;
+    let response = tokio::time::timeout(Duration::from_secs(5), harness.recv_response(&id))
+        .await
+        .expect("an INTERNAL_ERROR response should arrive instead of hanging forever");
+    assert_eq!(response.error.expect("error").code, codes::INTERNAL_ERROR);
 }
 
 #[tokio::test]
