@@ -5,6 +5,7 @@ use super::base::Uri;
 use super::code_lens::CodeLensOptions;
 use super::diagnostics::DiagnosticOptions;
 use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
+use super::file_operations::FileOperationsServerCapabilities;
 use super::formatting::DocumentOnTypeFormattingOptions;
 use super::inlay_hint::InlayHintOptions;
 use super::links::DocumentLinkOptions;
@@ -225,9 +226,24 @@ pub struct ServerCapabilities {
     /// Diagnostic-pull-model support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_provider: Option<DiagnosticOptions>,
+    /// Workspace-scoped capabilities that nest under `workspace` on the
+    /// wire instead of being top-level fields (currently just
+    /// [`file_operations`](WorkspaceServerCapabilities::file_operations)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceServerCapabilities>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// The `workspace` sub-object of [`ServerCapabilities`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceServerCapabilities {
+    /// Which file-operation hooks (`willCreateFiles`, `didRenameFiles`, …)
+    /// the server wants to be told about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_operations: Option<FileOperationsServerCapabilities>,
 }
 
 /// Options describing the server's completion support.

@@ -276,6 +276,18 @@ int_enum! {
     }
 }
 
+int_enum! {
+    /// Why `textDocument/willSave` (or `willSaveWaitUntil`) fired.
+    pub enum TextDocumentSaveReason {
+        /// The user manually triggered the save (e.g. Ctrl+S).
+        Manual = 1,
+        /// Saved automatically after a delay.
+        AfterDelay = 2,
+        /// Saved automatically because the editor lost focus.
+        FocusOut = 3,
+    }
+}
+
 /// The format of a [`crate::lsp::MarkupContent`] value. Unlike the enums above
 /// this is encoded as a JSON string, so it uses a plain serde derive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

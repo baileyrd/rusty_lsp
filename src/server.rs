@@ -19,15 +19,16 @@ use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
     CodeAction, CodeActionParams, CodeLens, CodeLensParams, ColorPresentationParams,
-    CompletionItem, CompletionParams, DefinitionParams, DidChangeConfigurationParams,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentColorParams, DocumentDiagnosticParams, DocumentFormattingParams, DocumentLink,
-    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
-    DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams,
-    InlayHint, InlayHintParams, MessageType, ReferenceParams, RenameParams, SelectionRangeParams,
-    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams,
-    SignatureHelpParams, TextDocumentPositionParams, WorkDoneProgressCancelParams,
+    CompletionItem, CompletionParams, CreateFilesParams, DefinitionParams, DeleteFilesParams,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
+    DocumentFormattingParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams,
+    HoverParams, InitializeParams, InlayHint, InlayHintParams, MessageType, ReferenceParams,
+    RenameFilesParams, RenameParams, SelectionRangeParams, SemanticTokensDeltaParams,
+    SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams,
+    TextDocumentPositionParams, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
     WorkspaceDiagnosticParams, WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
@@ -525,6 +526,26 @@ async fn dispatch_request<B: LanguageServer>(
                 .workspace_diagnostic(parse_params::<WorkspaceDiagnosticParams>(params)?)
                 .await?,
         ),
+        "textDocument/willSaveWaitUntil" => to_json(
+            &backend
+                .will_save_wait_until(parse_params::<WillSaveTextDocumentParams>(params)?)
+                .await?,
+        ),
+        "workspace/willCreateFiles" => to_json(
+            &backend
+                .will_create_files(parse_params::<CreateFilesParams>(params)?)
+                .await?,
+        ),
+        "workspace/willRenameFiles" => to_json(
+            &backend
+                .will_rename_files(parse_params::<RenameFilesParams>(params)?)
+                .await?,
+        ),
+        "workspace/willDeleteFiles" => to_json(
+            &backend
+                .will_delete_files(parse_params::<DeleteFilesParams>(params)?)
+                .await?,
+        ),
         _ => backend.handle_request(method, params).await,
     }
 }
@@ -581,6 +602,22 @@ async fn dispatch_notification<B: LanguageServer>(
                 Err(err) => log_bad_params(client, method, &err),
             }
         }
+        "textDocument/willSave" => match parse_params::<WillSaveTextDocumentParams>(params) {
+            Ok(p) => backend.will_save(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
+        "workspace/didCreateFiles" => match parse_params::<CreateFilesParams>(params) {
+            Ok(p) => backend.did_create_files(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
+        "workspace/didRenameFiles" => match parse_params::<RenameFilesParams>(params) {
+            Ok(p) => backend.did_rename_files(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
+        "workspace/didDeleteFiles" => match parse_params::<DeleteFilesParams>(params) {
+            Ok(p) => backend.did_delete_files(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
         _ => backend.handle_notification(method, params).await,
     }
 }

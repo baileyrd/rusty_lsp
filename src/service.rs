@@ -21,20 +21,20 @@ use crate::error::{Error, Result};
 use crate::lsp::{
     CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, ColorInformation,
     ColorPresentation, ColorPresentationParams, CompletionItem, CompletionParams,
-    CompletionResponse, DefinitionParams, DidChangeConfigurationParams,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentColorParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentFormattingParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
-    DocumentRangeFormattingParams, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandParams, FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport,
-    GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, InlayHint,
-    InlayHintParams, Location, PrepareRenameResponse, ReferenceParams, RenameParams,
-    SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
-    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelp,
-    SignatureHelpParams, SymbolInformation, TextDocumentPositionParams, TextEdit,
-    WorkDoneProgressCancelParams, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
-    WorkspaceEdit, WorkspaceSymbolParams,
+    CompletionResponse, CreateFilesParams, DefinitionParams, DeleteFilesParams,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandParams, FoldingRange, FoldingRangeParams,
+    FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
+    InitializeResult, InlayHint, InlayHintParams, Location, PrepareRenameResponse, ReferenceParams,
+    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
+    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
+    SemanticTokensRangeParams, SignatureHelp, SignatureHelpParams, SymbolInformation,
+    TextDocumentPositionParams, TextEdit, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use serde_json::Value;
 
@@ -464,6 +464,79 @@ pub trait LanguageServer: Send + Sync + 'static {
     ) -> impl Future<Output = Result<WorkspaceDiagnosticReport>> + Send {
         let _ = params;
         async { Ok(WorkspaceDiagnosticReport::default()) }
+    }
+
+    /// Handle `textDocument/willSave`.
+    fn will_save(&self, params: WillSaveTextDocumentParams) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `textDocument/willSaveWaitUntil`.
+    ///
+    /// Unlike [`will_save`](Self::will_save), this is a request: the client
+    /// waits for the response (applying any returned edits) before actually
+    /// saving.
+    fn will_save_wait_until(
+        &self,
+        params: WillSaveTextDocumentParams,
+    ) -> impl Future<Output = Result<Option<Vec<TextEdit>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `workspace/willCreateFiles`, sent before the client creates
+    /// files, so the server can propose an edit (e.g. inserting boilerplate
+    /// into the new file) to apply alongside the creation.
+    fn will_create_files(
+        &self,
+        params: CreateFilesParams,
+    ) -> impl Future<Output = Result<Option<WorkspaceEdit>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `workspace/didCreateFiles`, sent after the client created
+    /// files.
+    fn did_create_files(&self, params: CreateFilesParams) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `workspace/willRenameFiles`, sent before the client renames
+    /// files, so the server can propose an edit (e.g. updating imports) to
+    /// apply alongside the rename.
+    fn will_rename_files(
+        &self,
+        params: RenameFilesParams,
+    ) -> impl Future<Output = Result<Option<WorkspaceEdit>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `workspace/didRenameFiles`, sent after the client renamed
+    /// files.
+    fn did_rename_files(&self, params: RenameFilesParams) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `workspace/willDeleteFiles`, sent before the client deletes
+    /// files, so the server can propose an edit (e.g. removing now-dangling
+    /// imports) to apply alongside the deletion.
+    fn will_delete_files(
+        &self,
+        params: DeleteFilesParams,
+    ) -> impl Future<Output = Result<Option<WorkspaceEdit>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `workspace/didDeleteFiles`, sent after the client deleted
+    /// files.
+    fn did_delete_files(&self, params: DeleteFilesParams) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
     }
 
     /// Fallback for request methods the framework does not model.

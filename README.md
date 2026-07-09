@@ -116,8 +116,10 @@ Core navigation and editing requests (`hover`, `completion` + resolve,
 `selectionRange`, `codeLens` + resolve, `documentLink` + resolve,
 `documentColor`/`colorPresentation`, `semanticTokens` full/delta/range,
 `inlayHint` + resolve), diagnostics (push via `publishDiagnostics`, and the
-pull model via `textDocument/diagnostic`/`workspace/diagnostic`), and
-notifications (`didOpen`/`didChange`/`didClose`/`didSave`,
+pull model via `textDocument/diagnostic`/`workspace/diagnostic`), file
+lifecycle (`willSave`/`willSaveWaitUntil`, `will`/`didCreateFiles`,
+`will`/`didRenameFiles`, `will`/`didDeleteFiles`), and notifications
+(`didOpen`/`didChange`/`didClose`/`didSave`,
 `workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`)
 have typed trait methods. `references`, `workspace/symbol`, `documentSymbol`,
 `formatting`, and `codeAction` also accept the spec's `workDoneToken` /

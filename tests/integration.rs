@@ -11,21 +11,23 @@ use rusty_lsp::lsp::{
     CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, Color,
     ColorInformation, ColorPresentation, ColorPresentationParams, CompletionItem,
     CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse, ConfigurationItem,
-    Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidOpenTextDocumentParams, DocumentColorParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink,
-    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams,
-    FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover,
-    HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
-    MessageType, Position, PrepareRenameResponse, Range, ReferenceParams, RenameParams,
+    CreateFilesParams, DeleteFilesParams, Diagnostic, DiagnosticSeverity,
+    DidChangeConfigurationParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
+    DidOpenTextDocumentParams, DocumentColorParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbol,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, FoldingRange,
+    FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams,
+    InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location, MessageType,
+    Position, PrepareRenameResponse, Range, ReferenceParams, RenameFilesParams, RenameParams,
     SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
     SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, ServerCapabilities,
     ServerInfo, SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation,
-    SymbolKind, TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
-    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
-    WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbolParams, code_action_kind,
+    SymbolKind, TextDocumentPositionParams, TextDocumentSyncKind, TextEdit,
+    WillSaveTextDocumentParams, WorkDoneProgressBegin, WorkDoneProgressCancelParams,
+    WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport, WorkspaceEdit,
+    WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbolParams, code_action_kind,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -503,6 +505,62 @@ impl LanguageServer for TestBackend {
                 },
             )],
         })
+    }
+
+    async fn will_save(&self, params: WillSaveTextDocumentParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!(
+                "will save {} (reason {:?})",
+                params.text_document.uri, params.reason
+            ),
+        );
+    }
+
+    async fn will_save_wait_until(
+        &self,
+        _params: WillSaveTextDocumentParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        Ok(Some(vec![TextEdit::new(zero_range(), "trimmed")]))
+    }
+
+    async fn will_create_files(&self, params: CreateFilesParams) -> Result<Option<WorkspaceEdit>> {
+        Ok(Some(WorkspaceEdit::for_document(
+            params.files[0].uri.clone(),
+            vec![TextEdit::new(zero_range(), "// boilerplate\n")],
+        )))
+    }
+
+    async fn did_create_files(&self, params: CreateFilesParams) {
+        let _ = self
+            .client
+            .log_message(MessageType::Info, format!("created {}", params.files.len()));
+    }
+
+    async fn will_rename_files(&self, params: RenameFilesParams) -> Result<Option<WorkspaceEdit>> {
+        Ok(Some(WorkspaceEdit::for_document(
+            params.files[0].old_uri.clone(),
+            vec![TextEdit::new(zero_range(), "// import updated\n")],
+        )))
+    }
+
+    async fn did_rename_files(&self, params: RenameFilesParams) {
+        let _ = self
+            .client
+            .log_message(MessageType::Info, format!("renamed {}", params.files.len()));
+    }
+
+    async fn will_delete_files(&self, params: DeleteFilesParams) -> Result<Option<WorkspaceEdit>> {
+        Ok(Some(WorkspaceEdit::for_document(
+            params.files[0].uri.clone(),
+            vec![TextEdit::new(zero_range(), "")],
+        )))
+    }
+
+    async fn did_delete_files(&self, params: DeleteFilesParams) {
+        let _ = self
+            .client
+            .log_message(MessageType::Info, format!("deleted {}", params.files.len()));
     }
 }
 
@@ -1385,6 +1443,107 @@ async fn apply_edit_round_trip() {
 
     let response = harness.recv_response(&id).await;
     assert_eq!(response.result.unwrap()["applied"], json!(true));
+}
+
+#[tokio::test]
+async fn will_save_and_wait_until_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    harness
+        .notify(
+            "textDocument/willSave",
+            json!({"textDocument": {"uri": "file:///a.txt"}, "reason": 1}),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert!(
+        note.params.unwrap()["message"]
+            .as_str()
+            .unwrap()
+            .contains("file:///a.txt")
+    );
+
+    let id = harness
+        .request(
+            "textDocument/willSaveWaitUntil",
+            json!({"textDocument": {"uri": "file:///a.txt"}, "reason": 1}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")[0]["newText"],
+        json!("trimmed")
+    );
+}
+
+#[tokio::test]
+async fn file_operation_hooks_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "workspace/willCreateFiles",
+            json!({"files": [{"uri": "file:///new.txt"}]}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["changes"]["file:///new.txt"][0]["newText"],
+        json!("// boilerplate\n")
+    );
+
+    harness
+        .notify(
+            "workspace/didCreateFiles",
+            json!({"files": [{"uri": "file:///new.txt"}]}),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(note.params.unwrap()["message"], json!("created 1"));
+
+    let id = harness
+        .request(
+            "workspace/willRenameFiles",
+            json!({"files": [{"oldUri": "file:///a.txt", "newUri": "file:///b.txt"}]}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["changes"]["file:///a.txt"][0]["newText"],
+        json!("// import updated\n")
+    );
+
+    harness
+        .notify(
+            "workspace/didRenameFiles",
+            json!({"files": [{"oldUri": "file:///a.txt", "newUri": "file:///b.txt"}]}),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(note.params.unwrap()["message"], json!("renamed 1"));
+
+    let id = harness
+        .request(
+            "workspace/willDeleteFiles",
+            json!({"files": [{"uri": "file:///gone.txt"}]}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["changes"]["file:///gone.txt"][0]["newText"],
+        json!("")
+    );
+
+    harness
+        .notify(
+            "workspace/didDeleteFiles",
+            json!({"files": [{"uri": "file:///gone.txt"}]}),
+        )
+        .await;
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(note.params.unwrap()["message"], json!("deleted 1"));
 }
 
 #[tokio::test]
