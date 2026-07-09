@@ -20,8 +20,9 @@
 use crate::error::{Error, Result};
 use crate::lsp::{
     CompletionParams, CompletionResponse, DefinitionParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
+    InitializeResult, WorkDoneProgressCancelParams,
 };
 use serde_json::Value;
 
@@ -105,6 +106,27 @@ pub trait LanguageServer: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
         let _ = params;
         async { Ok(None) }
+    }
+
+    /// Handle `workspace/didChangeWorkspaceFolders`, sent when the client
+    /// adds or removes root folders in a multi-root workspace.
+    fn did_change_workspace_folders(
+        &self,
+        params: DidChangeWorkspaceFoldersParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
+    }
+
+    /// Handle `window/workDoneProgress/cancel`, sent when the user cancels a
+    /// [`Client`](crate::Client)-reported progress sequence from the client
+    /// UI. The default is a no-op; override to actually abort the work.
+    fn work_done_progress_cancel(
+        &self,
+        params: WorkDoneProgressCancelParams,
+    ) -> impl Future<Output = ()> + Send {
+        let _ = params;
+        async {}
     }
 
     /// Fallback for request methods the framework does not model.

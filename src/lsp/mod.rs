@@ -16,7 +16,9 @@ pub mod document;
 pub mod enums;
 pub mod features;
 pub mod lifecycle;
+pub mod progress;
 pub mod window;
+pub mod workspace;
 
 pub use base::{
     Location, Position, Range, TextDocumentIdentifier, TextDocumentItem,
@@ -29,7 +31,7 @@ pub use document::{
 };
 pub use enums::{
     CompletionItemKind, CompletionTriggerKind, DiagnosticSeverity, MarkupKind, MessageType,
-    TextDocumentSyncKind,
+    PositionEncodingKind, TextDocumentSyncKind,
 };
 pub use features::{
     CompletionContext, CompletionItem, CompletionList, CompletionParams, CompletionResponse,
@@ -39,4 +41,14 @@ pub use lifecycle::{
     ClientCapabilities, ClientInfo, CompletionOptions, InitializeParams, InitializeResult,
     ServerCapabilities, ServerInfo,
 };
+pub use progress::{
+    ProgressParams, ProgressToken, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressCancelParams, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
+    WorkDoneProgressReport,
+};
 pub use window::{LogMessageParams, ShowMessageParams};
+pub use workspace::{
+    ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ConfigurationItem, ConfigurationParams,
+    DidChangeWorkspaceFoldersParams, TextEdit, WorkspaceEdit, WorkspaceFolder,
+    WorkspaceFoldersChangeEvent,
+};
