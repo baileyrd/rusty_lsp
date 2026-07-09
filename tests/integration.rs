@@ -9,9 +9,10 @@ use rusty_lsp::error::{Result, codes};
 use rusty_lsp::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use rusty_lsp::lsp::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    Diagnostic, DiagnosticSeverity, DidOpenTextDocumentParams, Hover, HoverParams,
-    InitializeParams, InitializeResult, Position, Range, ServerCapabilities, ServerInfo,
-    TextDocumentSyncKind,
+    ConfigurationItem, Diagnostic, DiagnosticSeverity, DidChangeWorkspaceFoldersParams,
+    DidOpenTextDocumentParams, Hover, HoverParams, InitializeParams, InitializeResult, Position,
+    Range, ServerCapabilities, ServerInfo, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
+    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -92,8 +93,77 @@ impl LanguageServer for TestBackend {
             // panic still yields a response instead of hanging the request
             // forever. The panic backtrace printed by this test is expected.
             "test/panic" => panic!("intentional panic for test coverage"),
+            // Drives a full work-done-progress sequence, used to test the
+            // `Client` progress helpers round-trip over the wire.
+            "test/progress" => {
+                let token = "progress-1";
+                self.client.create_progress(token).await?;
+                self.client.progress_begin(
+                    token,
+                    WorkDoneProgressBegin {
+                        title: "Working".to_owned(),
+                        ..Default::default()
+                    },
+                )?;
+                self.client.progress_report(
+                    token,
+                    WorkDoneProgressReport {
+                        percentage: Some(50),
+                        ..Default::default()
+                    },
+                )?;
+                self.client.progress_end(
+                    token,
+                    WorkDoneProgressEnd {
+                        message: Some("done".to_owned()),
+                    },
+                )?;
+                Ok(json!("done"))
+            }
+            // Exercises `Client::configuration`.
+            "test/configuration" => {
+                let items = vec![ConfigurationItem {
+                    section: Some("editor.tabSize".to_owned()),
+                    scope_uri: None,
+                }];
+                let values = self.client.configuration(items).await?;
+                Ok(json!(values))
+            }
+            // Exercises `Client::apply_edit`.
+            "test/apply_edit" => {
+                let edit = WorkspaceEdit::for_document(
+                    "file:///a".to_owned(),
+                    vec![TextEdit::new(
+                        Range::new(Position::new(0, 0), Position::new(0, 1)),
+                        "x",
+                    )],
+                );
+                let result = self
+                    .client
+                    .apply_edit(edit, Some("test edit".to_owned()))
+                    .await?;
+                Ok(serde_json::to_value(result)?)
+            }
             other => Err(Error::method_not_found(other.to_owned())),
         }
+    }
+
+    async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        let _ = self.client.log_message(
+            rusty_lsp::lsp::MessageType::Info,
+            format!(
+                "workspace folders changed: +{} -{}",
+                params.event.added.len(),
+                params.event.removed.len()
+            ),
+        );
+    }
+
+    async fn work_done_progress_cancel(&self, params: WorkDoneProgressCancelParams) {
+        let _ = self.client.log_message(
+            rusty_lsp::lsp::MessageType::Info,
+            format!("progress cancelled: {:?}", params.token),
+        );
     }
 }
 
@@ -165,6 +235,25 @@ impl Harness {
             params: Some(params),
         }))
         .await;
+    }
+
+    /// Answer a server-to-client request (playing the client's role in the
+    /// handshake for e.g. `window/workDoneProgress/create`).
+    async fn respond(&mut self, id: RequestId, result: Value) {
+        self.send(Message::Response(Response::success(id, result)))
+            .await;
+    }
+
+    /// Read until a request with `method` arrives, skipping interleaved
+    /// messages.
+    async fn recv_request(&mut self, method: &str) -> Request {
+        loop {
+            if let Message::Request(req) = self.recv().await
+                && req.method == method
+            {
+                return req;
+            }
+        }
     }
 
     async fn recv(&mut self) -> Message {
@@ -399,6 +488,119 @@ async fn shutdown_rejects_further_requests_then_exit_stops_server() {
         .expect("server should stop after exit")
         .expect("server task did not panic");
     assert!(outcome.is_ok());
+}
+
+#[tokio::test]
+async fn progress_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/progress", json!({})).await;
+
+    // The server reserves a token before using it; accept the reservation.
+    let create = harness.recv_request("window/workDoneProgress/create").await;
+    assert_eq!(create.params.unwrap()["token"], json!("progress-1"));
+    harness.respond(create.id, Value::Null).await;
+
+    let begin = harness.recv_notification("$/progress").await;
+    let begin_value = begin.params.unwrap();
+    assert_eq!(begin_value["token"], json!("progress-1"));
+    assert_eq!(begin_value["value"]["kind"], json!("begin"));
+    assert_eq!(begin_value["value"]["title"], json!("Working"));
+
+    let report = harness.recv_notification("$/progress").await;
+    assert_eq!(report.params.unwrap()["value"]["kind"], json!("report"));
+
+    let end = harness.recv_notification("$/progress").await;
+    let end_value = end.params.unwrap();
+    assert_eq!(end_value["value"]["kind"], json!("end"));
+    assert_eq!(end_value["value"]["message"], json!("done"));
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result, Some(json!("done")));
+}
+
+#[tokio::test]
+async fn configuration_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/configuration", json!({})).await;
+
+    let config_request = harness.recv_request("workspace/configuration").await;
+    assert_eq!(
+        config_request.params.unwrap()["items"][0]["section"],
+        json!("editor.tabSize")
+    );
+    harness.respond(config_request.id, json!([4])).await;
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result, Some(json!([4])));
+}
+
+#[tokio::test]
+async fn apply_edit_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/apply_edit", json!({})).await;
+
+    let edit_request = harness.recv_request("workspace/applyEdit").await;
+    let params = edit_request.params.unwrap();
+    assert_eq!(params["label"], json!("test edit"));
+    assert_eq!(
+        params["edit"]["changes"]["file:///a"][0]["newText"],
+        json!("x")
+    );
+    harness
+        .respond(edit_request.id, json!({"applied": true}))
+        .await;
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result.unwrap()["applied"], json!(true));
+}
+
+#[tokio::test]
+async fn workspace_folders_change_notification_is_routed() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    harness
+        .notify(
+            "workspace/didChangeWorkspaceFolders",
+            json!({
+                "event": {
+                    "added": [{"uri": "file:///a", "name": "a"}],
+                    "removed": [],
+                }
+            }),
+        )
+        .await;
+
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(
+        note.params.unwrap()["message"],
+        json!("workspace folders changed: +1 -0")
+    );
+}
+
+#[tokio::test]
+async fn work_done_progress_cancel_notification_is_routed() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    harness
+        .notify(
+            "window/workDoneProgress/cancel",
+            json!({ "token": "progress-1" }),
+        )
+        .await;
+
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(
+        note.params.unwrap()["message"],
+        json!("progress cancelled: String(\"progress-1\")")
+    );
 }
 
 #[tokio::test]

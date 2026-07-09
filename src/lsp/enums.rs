@@ -173,6 +173,25 @@ pub enum MarkupKind {
     Markdown,
 }
 
+/// The character encoding a [`crate::lsp::Position`]'s `character` field is
+/// measured in, negotiated via `capabilities.general.positionEncodings` /
+/// [`crate::lsp::ServerCapabilities::position_encoding`] (LSP 3.17). Encoded
+/// as the JSON strings the spec defines, not integers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PositionEncodingKind {
+    /// Positions are measured in UTF-8 code units (bytes).
+    #[serde(rename = "utf-8")]
+    Utf8,
+    /// Positions are measured in UTF-16 code units. The default per the base
+    /// LSP spec, and what every function in [`crate::text`] assumes unless
+    /// told otherwise.
+    #[serde(rename = "utf-16")]
+    Utf16,
+    /// Positions are measured in UTF-32 code units (Unicode scalar values).
+    #[serde(rename = "utf-32")]
+    Utf32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

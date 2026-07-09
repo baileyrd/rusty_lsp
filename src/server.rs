@@ -18,9 +18,10 @@ use crate::client::Client;
 use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
-    CompletionParams, DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, HoverParams, InitializeParams,
-    MessageType,
+    CompletionParams, DefinitionParams, DidChangeTextDocumentParams,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, HoverParams, InitializeParams, MessageType,
+    WorkDoneProgressCancelParams,
 };
 use crate::service::LanguageServer;
 use crate::transport;
@@ -375,6 +376,18 @@ async fn dispatch_notification<B: LanguageServer>(
             Ok(p) => backend.did_save(p).await,
             Err(err) => log_bad_params(client, method, &err),
         },
+        "workspace/didChangeWorkspaceFolders" => {
+            match parse_params::<DidChangeWorkspaceFoldersParams>(params) {
+                Ok(p) => backend.did_change_workspace_folders(p).await,
+                Err(err) => log_bad_params(client, method, &err),
+            }
+        }
+        "window/workDoneProgress/cancel" => {
+            match parse_params::<WorkDoneProgressCancelParams>(params) {
+                Ok(p) => backend.work_done_progress_cancel(p).await,
+                Err(err) => log_bad_params(client, method, &err),
+            }
+        }
         _ => backend.handle_notification(method, params).await,
     }
 }

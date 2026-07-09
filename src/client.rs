@@ -8,7 +8,10 @@
 use crate::error::{Error, Result};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
-    Diagnostic, LogMessageParams, MessageType, PublishDiagnosticsParams, ShowMessageParams, Uri,
+    ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ConfigurationItem, ConfigurationParams,
+    Diagnostic, LogMessageParams, MessageType, ProgressParams, ProgressToken,
+    PublishDiagnosticsParams, ShowMessageParams, Uri, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -130,6 +133,92 @@ impl Client {
                 message: message.into(),
             },
         )
+    }
+
+    /// Ask the client to reserve `token` for a subsequent work-done-progress
+    /// sequence not tied to a specific client request (e.g. background
+    /// indexing). Await the result before calling
+    /// [`progress_begin`](Self::progress_begin).
+    pub async fn create_progress(&self, token: impl Into<ProgressToken>) -> Result<()> {
+        self.send_request(
+            "window/workDoneProgress/create",
+            WorkDoneProgressCreateParams {
+                token: token.into(),
+            },
+        )
+        .await
+    }
+
+    /// Start a work-done-progress sequence for `token` (reserved beforehand
+    /// via [`create_progress`](Self::create_progress), or a token supplied by
+    /// the client on a request's `workDoneToken`).
+    pub fn progress_begin(
+        &self,
+        token: impl Into<ProgressToken>,
+        begin: WorkDoneProgressBegin,
+    ) -> Result<()> {
+        self.notify(
+            "$/progress",
+            ProgressParams {
+                token: token.into(),
+                value: WorkDoneProgress::Begin(begin),
+            },
+        )
+    }
+
+    /// Report incremental progress within a sequence started with
+    /// [`progress_begin`](Self::progress_begin).
+    pub fn progress_report(
+        &self,
+        token: impl Into<ProgressToken>,
+        report: WorkDoneProgressReport,
+    ) -> Result<()> {
+        self.notify(
+            "$/progress",
+            ProgressParams {
+                token: token.into(),
+                value: WorkDoneProgress::Report(report),
+            },
+        )
+    }
+
+    /// End a progress sequence started with
+    /// [`progress_begin`](Self::progress_begin).
+    pub fn progress_end(
+        &self,
+        token: impl Into<ProgressToken>,
+        end: WorkDoneProgressEnd,
+    ) -> Result<()> {
+        self.notify(
+            "$/progress",
+            ProgressParams {
+                token: token.into(),
+                value: WorkDoneProgress::End(end),
+            },
+        )
+    }
+
+    /// Ask the client for the value of one or more configuration sections
+    /// (`workspace/configuration`). The result has one entry per item in
+    /// `items`, in the same order; a section the client has no value for
+    /// comes back as `Value::Null`.
+    pub async fn configuration(&self, items: Vec<ConfigurationItem>) -> Result<Vec<Value>> {
+        self.send_request("workspace/configuration", ConfigurationParams { items })
+            .await
+    }
+
+    /// Ask the client to apply a [`WorkspaceEdit`] to its buffers
+    /// (`workspace/applyEdit`).
+    pub async fn apply_edit(
+        &self,
+        edit: WorkspaceEdit,
+        label: Option<String>,
+    ) -> Result<ApplyWorkspaceEditResult> {
+        self.send_request(
+            "workspace/applyEdit",
+            ApplyWorkspaceEditParams { label, edit },
+        )
+        .await
     }
 
     /// Deliver a response received from the client to its waiting caller.

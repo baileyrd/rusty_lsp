@@ -2,15 +2,16 @@
 //! capability negotiation that rides along with them.
 
 use super::base::Uri;
-use super::enums::TextDocumentSyncKind;
+use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
+use super::workspace::WorkspaceFolder;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 /// Parameters of the `initialize` request.
 ///
 /// Only the broadly useful fields are modelled as named fields; anything else
-/// the client sends (`workspaceFolders`, `trace`, `locale`, …) is preserved
-/// verbatim in [`extra`](Self::extra) rather than dropped, mirroring
+/// the client sends (`trace`, `locale`, …) is preserved verbatim in
+/// [`extra`](Self::extra) rather than dropped, mirroring
 /// [`ServerCapabilities::extra`].
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,17 +22,24 @@ pub struct InitializeParams {
     /// Information about the client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_info: Option<ClientInfo>,
-    /// The root URI of the workspace, if any.
+    /// The root URI of the workspace, if any. Deprecated by the spec in
+    /// favour of [`workspace_folders`](Self::workspace_folders), but still
+    /// sent by some clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_uri: Option<Uri>,
+    /// The workspace folders configured, for multi-root workspaces. `None`
+    /// when the client doesn't support multi-root and sent `root_uri`
+    /// instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_folders: Option<Vec<WorkspaceFolder>>,
     /// Capabilities advertised by the client.
     #[serde(default)]
     pub capabilities: ClientCapabilities,
     /// Server-defined initialization options passed by the client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initialization_options: Option<Value>,
-    /// Any fields not modelled above (e.g. `workspaceFolders`, `trace`,
-    /// `locale`), preserved so backends can still read them.
+    /// Any fields not modelled above (e.g. `trace`, `locale`), preserved so
+    /// backends can still read them.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -45,19 +53,34 @@ mod tests {
     fn extra_fields_round_trip() {
         let value = json!({
             "capabilities": {},
-            "workspaceFolders": [{"uri": "file:///a", "name": "a"}],
             "trace": "off",
+            "locale": "en-US",
         });
         let params: InitializeParams = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(
-            params.extra.get("workspaceFolders"),
-            Some(&value["workspaceFolders"])
-        );
         assert_eq!(params.extra.get("trace"), Some(&json!("off")));
+        assert_eq!(params.extra.get("locale"), Some(&json!("en-US")));
 
         let round_tripped = serde_json::to_value(&params).unwrap();
-        assert_eq!(round_tripped["workspaceFolders"], value["workspaceFolders"]);
         assert_eq!(round_tripped["trace"], value["trace"]);
+        assert_eq!(round_tripped["locale"], value["locale"]);
+    }
+
+    #[test]
+    fn workspace_folders_are_a_typed_field() {
+        let value = json!({
+            "capabilities": {},
+            "workspaceFolders": [{"uri": "file:///a", "name": "a"}],
+        });
+        let params: InitializeParams = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            params.workspace_folders,
+            Some(vec![WorkspaceFolder {
+                uri: "file:///a".to_owned(),
+                name: "a".to_owned(),
+            }])
+        );
+        // Not duplicated into `extra`.
+        assert!(params.extra.get("workspaceFolders").is_none());
     }
 }
 
@@ -114,6 +137,12 @@ pub struct ServerInfo {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
+    /// The character encoding the server chose for [`crate::lsp::Position`],
+    /// selected from the client's `capabilities.general.positionEncodings`
+    /// (LSP 3.17). `None` means UTF-16, the base-spec default, and matches
+    /// the encoding every conversion in [`crate::text`] assumes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_encoding: Option<PositionEncodingKind>,
     /// How the server wants document content synchronised.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_document_sync: Option<TextDocumentSyncKind>,
