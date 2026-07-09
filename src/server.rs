@@ -249,6 +249,15 @@ where
 /// The task, any concurrent `$/cancelRequest`, and the panic watcher below
 /// race to remove the id from [`InFlight`]; whoever wins sends the single
 /// response, guaranteeing a request is answered exactly once.
+///
+/// A client must not reuse the id of a request it has not yet received a
+/// response for (JSON-RPC/LSP); a request whose id is already in
+/// [`InFlight`] is rejected outright rather than spawned, since letting it
+/// through would silently steal the original request's `InFlight` entry —
+/// corrupting `$/cancelRequest` targeting and dropping whichever response
+/// loses the race. This function only ever runs on the single-threaded
+/// message loop (never concurrently with itself), so the check-then-insert
+/// below has no race window of its own.
 fn spawn_request<B: LanguageServer>(
     backend: &Arc<B>,
     out_tx: &mpsc::UnboundedSender<Message>,
@@ -258,6 +267,16 @@ fn spawn_request<B: LanguageServer>(
     let request_id = req.id;
     let method = req.method;
     let params = req.params;
+
+    if lock(in_flight).contains_key(&request_id) {
+        send_error(
+            out_tx,
+            request_id,
+            Error::invalid_request("request id is already in flight"),
+        );
+        return;
+    }
+
     let backend = Arc::clone(backend);
     let handler_out_tx = out_tx.clone();
     let in_flight_for_task = Arc::clone(in_flight);
