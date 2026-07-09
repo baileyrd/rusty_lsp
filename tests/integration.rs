@@ -13,17 +13,19 @@ use rusty_lsp::lsp::{
     CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse, ConfigurationItem,
     Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidOpenTextDocumentParams, DocumentColorParams,
-    DocumentFormattingParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
-    DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandParams, FoldingRange, FoldingRangeParams, GotoDefinitionResponse, Hover,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink,
+    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams,
+    FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover,
     HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
     MessageType, Position, PrepareRenameResponse, Range, ReferenceParams, RenameParams,
     SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
     SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, ServerCapabilities,
     ServerInfo, SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation,
     SymbolKind, TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
-    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
-    WorkspaceSymbolParams, code_action_kind,
+    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
+    WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbolParams, code_action_kind,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -154,6 +156,20 @@ impl LanguageServer for TestBackend {
                     .apply_edit(edit, Some("test edit".to_owned()))
                     .await?;
                 Ok(serde_json::to_value(result)?)
+            }
+            // Exercises the Client::refresh_* helpers.
+            "test/refresh" => {
+                self.client.refresh_semantic_tokens().await?;
+                self.client.refresh_code_lenses().await?;
+                self.client.refresh_inlay_hints().await?;
+                self.client.refresh_diagnostics().await?;
+                Ok(json!("refreshed"))
+            }
+            // Exercises `Client::send_progress` for partial-result streaming.
+            "test/partial_result" => {
+                self.client
+                    .send_progress("partial-1", vec!["chunk-1", "chunk-2"])?;
+                Ok(json!("done"))
             }
             other => Err(Error::method_not_found(other.to_owned())),
         }
@@ -450,6 +466,42 @@ impl LanguageServer for TestBackend {
                 "resolved tooltip",
             )),
             ..hint
+        })
+    }
+
+    async fn diagnostic(
+        &self,
+        _params: DocumentDiagnosticParams,
+    ) -> Result<DocumentDiagnosticReport> {
+        Ok(DocumentDiagnosticReport::Full(
+            FullDocumentDiagnosticReport {
+                result_id: Some("1".to_owned()),
+                items: vec![Diagnostic::new(
+                    zero_range(),
+                    DiagnosticSeverity::Error,
+                    "pulled diagnostic",
+                )],
+            },
+        ))
+    }
+
+    async fn workspace_diagnostic(
+        &self,
+        _params: WorkspaceDiagnosticParams,
+    ) -> Result<WorkspaceDiagnosticReport> {
+        Ok(WorkspaceDiagnosticReport {
+            items: vec![WorkspaceDocumentDiagnosticReport::Full(
+                WorkspaceFullDocumentDiagnosticReport {
+                    uri: "file:///a.txt".to_owned(),
+                    version: None,
+                    result_id: Some("1".to_owned()),
+                    items: vec![Diagnostic::new(
+                        zero_range(),
+                        DiagnosticSeverity::Warning,
+                        "workspace diagnostic",
+                    )],
+                },
+            )],
         })
     }
 }
@@ -1333,6 +1385,89 @@ async fn apply_edit_round_trip() {
 
     let response = harness.recv_response(&id).await;
     assert_eq!(response.result.unwrap()["applied"], json!(true));
+}
+
+#[tokio::test]
+async fn diagnostic_pull_model_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/diagnostic",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let report = response.result.expect("result");
+    assert_eq!(report["kind"], json!("full"));
+    assert_eq!(report["items"][0]["message"], json!("pulled diagnostic"));
+
+    let id = harness
+        .request("workspace/diagnostic", json!({"previousResultIds": []}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let report = response.result.expect("result");
+    assert_eq!(report["items"][0]["kind"], json!("full"));
+    assert_eq!(report["items"][0]["uri"], json!("file:///a.txt"));
+}
+
+#[tokio::test]
+async fn refresh_helpers_send_paramless_requests() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/refresh", json!({})).await;
+
+    for method in [
+        "workspace/semanticTokens/refresh",
+        "workspace/codeLens/refresh",
+        "workspace/inlayHint/refresh",
+        "workspace/diagnostic/refresh",
+    ] {
+        let request = harness.recv_request(method).await;
+        // The refresh methods take no params at all on the wire, not `null`.
+        assert!(request.params.is_none());
+        harness.respond(request.id, Value::Null).await;
+    }
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result, Some(json!("refreshed")));
+}
+
+#[tokio::test]
+async fn partial_result_streaming_sends_progress_notification() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/partial_result", json!({})).await;
+
+    let note = harness.recv_notification("$/progress").await;
+    let params = note.params.expect("params");
+    assert_eq!(params["token"], json!("partial-1"));
+    assert_eq!(params["value"], json!(["chunk-1", "chunk-2"]));
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result, Some(json!("done")));
+}
+
+#[tokio::test]
+async fn document_symbol_accepts_progress_token_fields() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/documentSymbol",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "workDoneToken": "w1",
+                "partialResultToken": "p1",
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result.expect("result")[0]["name"], json!("main"));
 }
 
 #[tokio::test]

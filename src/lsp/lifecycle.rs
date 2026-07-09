@@ -3,6 +3,7 @@
 
 use super::base::Uri;
 use super::code_lens::CodeLensOptions;
+use super::diagnostics::DiagnosticOptions;
 use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
 use super::formatting::DocumentOnTypeFormattingOptions;
 use super::inlay_hint::InlayHintOptions;
@@ -221,6 +222,9 @@ pub struct ServerCapabilities {
     /// Inlay-hint support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inlay_hint_provider: Option<InlayHintOptions>,
+    /// Diagnostic-pull-model support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_provider: Option<DiagnosticOptions>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,

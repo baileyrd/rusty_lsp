@@ -24,15 +24,17 @@ use crate::lsp::{
     CompletionResponse, DefinitionParams, DidChangeConfigurationParams,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentColorParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
-    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandParams, FoldingRange, FoldingRangeParams,
+    DocumentColorParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentFormattingParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, DocumentSymbolParams, DocumentSymbolResponse,
+    ExecuteCommandParams, FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport,
     GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, InlayHint,
     InlayHintParams, Location, PrepareRenameResponse, ReferenceParams, RenameParams,
     SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
     SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelp,
     SignatureHelpParams, SymbolInformation, TextDocumentPositionParams, TextEdit,
-    WorkDoneProgressCancelParams, WorkspaceEdit, WorkspaceSymbolParams,
+    WorkDoneProgressCancelParams, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    WorkspaceEdit, WorkspaceSymbolParams,
 };
 use serde_json::Value;
 
@@ -433,6 +435,35 @@ pub trait LanguageServer: Send + Sync + 'static {
         hint: InlayHint,
     ) -> impl Future<Output = Result<InlayHint>> + Send {
         async { Ok(hint) }
+    }
+
+    /// Handle `textDocument/diagnostic`.
+    ///
+    /// The default reports an empty, fresh
+    /// [`DocumentDiagnosticReport::Full`] result.
+    fn diagnostic(
+        &self,
+        params: DocumentDiagnosticParams,
+    ) -> impl Future<Output = Result<DocumentDiagnosticReport>> + Send {
+        let _ = params;
+        async {
+            Ok(DocumentDiagnosticReport::Full(
+                FullDocumentDiagnosticReport::default(),
+            ))
+        }
+    }
+
+    /// Handle `workspace/diagnostic`.
+    ///
+    /// The default reports no items; override alongside setting
+    /// [`crate::lsp::ServerCapabilities::diagnostic_provider`]'s
+    /// `workspace_diagnostics` to advertise real support.
+    fn workspace_diagnostic(
+        &self,
+        params: WorkspaceDiagnosticParams,
+    ) -> impl Future<Output = Result<WorkspaceDiagnosticReport>> + Send {
+        let _ = params;
+        async { Ok(WorkspaceDiagnosticReport::default()) }
     }
 
     /// Fallback for request methods the framework does not model.

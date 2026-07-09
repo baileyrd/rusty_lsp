@@ -3,6 +3,7 @@
 use super::base::{Range, TextDocumentIdentifier};
 use super::diagnostics::Diagnostic;
 use super::enums::CodeActionTriggerKind;
+use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use super::workspace::WorkspaceEdit;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,6 +47,10 @@ pub struct CodeActionParams {
     pub range: Range,
     /// Additional context, primarily the diagnostics in range.
     pub context: CodeActionContext,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// Additional context for a `textDocument/codeAction` request.

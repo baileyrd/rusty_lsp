@@ -2,6 +2,7 @@
 
 use super::base::{Location, Range, TextDocumentIdentifier};
 use super::enums::SymbolKind;
+use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
 
 /// Parameters of `textDocument/documentSymbol`.
@@ -10,6 +11,10 @@ use serde::{Deserialize, Serialize};
 pub struct DocumentSymbolParams {
     /// The document to list symbols for.
     pub text_document: TextDocumentIdentifier,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// The result of a `textDocument/documentSymbol` request: either the modern
@@ -123,6 +128,10 @@ pub struct WorkspaceSymbolParams {
     /// The user's search query. An empty string requests all symbols the
     /// server is willing to return.
     pub query: String,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 #[cfg(test)]
@@ -184,6 +193,8 @@ mod tests {
             text_document: TextDocumentIdentifier {
                 uri: "file:///a".to_owned(),
             },
+            work_done: Default::default(),
+            partial_result: Default::default(),
         };
         let value = serde_json::to_value(&params).unwrap();
         assert_eq!(value, json!({"textDocument": {"uri": "file:///a"}}));

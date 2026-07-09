@@ -39,7 +39,13 @@ pub use code_action::{
     CodeActionOrCommand, CodeActionParams, Command, code_action_kind,
 };
 pub use code_lens::{CodeLens, CodeLensOptions, CodeLensParams};
-pub use diagnostics::{Diagnostic, PublishDiagnosticsParams};
+pub use diagnostics::{
+    Diagnostic, DiagnosticOptions, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    FullDocumentDiagnosticReport, PreviousResultId, PublishDiagnosticsParams,
+    UnchangedDocumentDiagnosticReport, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    WorkspaceDocumentDiagnosticReport, WorkspaceFullDocumentDiagnosticReport,
+    WorkspaceUnchangedDocumentDiagnosticReport,
+};
 pub use document::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, TextDocumentContentChangeEvent,
@@ -71,9 +77,9 @@ pub use links::{
     DocumentLink, DocumentLinkOptions, DocumentLinkParams,
 };
 pub use progress::{
-    ProgressParams, ProgressToken, WorkDoneProgress, WorkDoneProgressBegin,
+    PartialResultParams, ProgressParams, ProgressToken, WorkDoneProgress, WorkDoneProgressBegin,
     WorkDoneProgressCancelParams, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
-    WorkDoneProgressReport,
+    WorkDoneProgressParams, WorkDoneProgressReport,
 };
 pub use ranges::{
     FoldingRange, FoldingRangeKind, FoldingRangeParams, SelectionRange, SelectionRangeParams,

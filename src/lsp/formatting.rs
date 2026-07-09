@@ -1,6 +1,7 @@
 //! `textDocument/formatting`, `rangeFormatting`, and `onTypeFormatting` types.
 
 use super::base::{Range, TextDocumentIdentifier, TextDocumentPositionParams};
+use super::progress::WorkDoneProgressParams;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -25,6 +26,8 @@ pub struct DocumentFormattingParams {
     pub text_document: TextDocumentIdentifier,
     /// The client's formatting preferences.
     pub options: FormattingOptions,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
 }
 
 /// Parameters of `textDocument/rangeFormatting`.
