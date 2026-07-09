@@ -64,6 +64,10 @@ impl Client {
     ///
     /// The result is deserialized into `R`. A client error response becomes
     /// [`Error::Response`]; a dropped connection becomes an internal error.
+    /// Params that serialize to `null` (e.g. `()`, for parameterless
+    /// methods like the `workspace/*/refresh` family) are sent with the
+    /// `params` member omitted entirely, matching what those methods expect
+    /// on the wire.
     pub async fn send_request<P, R>(&self, method: &str, params: P) -> Result<R>
     where
         P: Serialize,
@@ -77,7 +81,7 @@ impl Client {
         if let Err(err) = self.send(Message::Request(Request {
             id: id.clone(),
             method: method.to_owned(),
-            params: Some(params),
+            params: if params.is_null() { None } else { Some(params) },
         })) {
             // Roll back the pending entry so it cannot leak.
             self.lock_pending().remove(&id);
@@ -219,6 +223,62 @@ impl Client {
             ApplyWorkspaceEditParams { label, edit },
         )
         .await
+    }
+
+    /// Send a raw `$/progress` notification carrying `value` on `token`.
+    ///
+    /// Unlike [`progress_begin`](Self::progress_begin)/
+    /// [`progress_report`](Self::progress_report)/
+    /// [`progress_end`](Self::progress_end) (which wrap `value` in the
+    /// [`WorkDoneProgress`] begin/report/end shape), this sends `value`
+    /// as-is — the shape a client streaming a request's
+    /// `partialResultToken` expects (e.g. a chunk of a `references` result:
+    /// `Vec<Location>`).
+    pub fn send_progress<T: Serialize>(
+        &self,
+        token: impl Into<ProgressToken>,
+        value: T,
+    ) -> Result<()> {
+        #[derive(Serialize)]
+        struct RawProgressParams<T> {
+            token: ProgressToken,
+            value: T,
+        }
+
+        self.notify(
+            "$/progress",
+            RawProgressParams {
+                token: token.into(),
+                value,
+            },
+        )
+    }
+
+    /// Ask the client to re-pull semantic tokens for all open documents
+    /// (`workspace/semanticTokens/refresh`), e.g. after a change that
+    /// invalidates previously reported tokens.
+    pub async fn refresh_semantic_tokens(&self) -> Result<()> {
+        self.send_request("workspace/semanticTokens/refresh", ())
+            .await
+    }
+
+    /// Ask the client to re-pull code lenses for all open documents
+    /// (`workspace/codeLens/refresh`).
+    pub async fn refresh_code_lenses(&self) -> Result<()> {
+        self.send_request("workspace/codeLens/refresh", ()).await
+    }
+
+    /// Ask the client to re-pull inlay hints for all open documents
+    /// (`workspace/inlayHint/refresh`).
+    pub async fn refresh_inlay_hints(&self) -> Result<()> {
+        self.send_request("workspace/inlayHint/refresh", ()).await
+    }
+
+    /// Ask the client to re-pull diagnostics (`workspace/diagnostic/refresh`),
+    /// e.g. after a configuration change that alters which diagnostics a
+    /// server reports.
+    pub async fn refresh_diagnostics(&self) -> Result<()> {
+        self.send_request("workspace/diagnostic/refresh", ()).await
     }
 
     /// Deliver a response received from the client to its waiting caller.

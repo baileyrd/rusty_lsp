@@ -22,13 +22,13 @@ use crate::lsp::{
     CompletionItem, CompletionParams, DefinitionParams, DidChangeConfigurationParams,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentColorParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
-    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
-    ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams, InlayHint,
-    InlayHintParams, MessageType, ReferenceParams, RenameParams, SelectionRangeParams,
+    DocumentColorParams, DocumentDiagnosticParams, DocumentFormattingParams, DocumentLink,
+    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
+    DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams,
+    InlayHint, InlayHintParams, MessageType, ReferenceParams, RenameParams, SelectionRangeParams,
     SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams,
     SignatureHelpParams, TextDocumentPositionParams, WorkDoneProgressCancelParams,
-    WorkspaceSymbolParams,
+    WorkspaceDiagnosticParams, WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
 use crate::transport;
@@ -513,6 +513,16 @@ async fn dispatch_request<B: LanguageServer>(
         "inlayHint/resolve" => to_json(
             &backend
                 .inlay_hint_resolve(parse_params::<InlayHint>(params)?)
+                .await?,
+        ),
+        "textDocument/diagnostic" => to_json(
+            &backend
+                .diagnostic(parse_params::<DocumentDiagnosticParams>(params)?)
+                .await?,
+        ),
+        "workspace/diagnostic" => to_json(
+            &backend
+                .workspace_diagnostic(parse_params::<WorkspaceDiagnosticParams>(params)?)
                 .await?,
         ),
         _ => backend.handle_request(method, params).await,

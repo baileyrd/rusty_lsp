@@ -124,6 +124,35 @@ pub struct WorkDoneProgressCancelParams {
     pub token: ProgressToken,
 }
 
+/// Mixin flattened into a request's params to opt it into work-done
+/// progress: the client may pre-create `work_done_token` itself (instead of
+/// the server calling `window/workDoneProgress/create`) and expect the
+/// server to report against it via
+/// [`Client::progress_begin`](crate::Client::progress_begin) /
+/// [`progress_report`](crate::Client::progress_report) /
+/// [`progress_end`](crate::Client::progress_end).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkDoneProgressParams {
+    /// The client-supplied token to report progress against, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_token: Option<ProgressToken>,
+}
+
+/// Mixin flattened into a "list" request's params to opt it into streaming
+/// partial results: when `partial_result_token` is set, the server may send
+/// zero or more `$/progress` notifications on that token — each carrying a
+/// chunk of the result, via
+/// [`Client::send_progress`](crate::Client::send_progress) — before (or
+/// instead of) returning the final response.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartialResultParams {
+    /// The client-supplied token to stream partial results on, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial_result_token: Option<ProgressToken>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +192,27 @@ mod tests {
         );
         let token: ProgressToken = serde_json::from_value(json!(42)).unwrap();
         assert_eq!(token, ProgressToken::Number(42));
+    }
+
+    #[test]
+    fn progress_param_mixins_flatten_camel_case_and_omit_when_absent() {
+        assert_eq!(
+            serde_json::to_value(WorkDoneProgressParams::default()).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            serde_json::to_value(WorkDoneProgressParams {
+                work_done_token: Some(ProgressToken::from("t1")),
+            })
+            .unwrap(),
+            json!({"workDoneToken": "t1"})
+        );
+        assert_eq!(
+            serde_json::to_value(PartialResultParams {
+                partial_result_token: Some(ProgressToken::from(2)),
+            })
+            .unwrap(),
+            json!({"partialResultToken": 2})
+        );
     }
 }

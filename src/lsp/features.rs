@@ -3,6 +3,7 @@
 
 use super::base::{Location, Range, TextDocumentPositionParams};
 use super::enums::{CompletionItemKind, CompletionTriggerKind, MarkupKind};
+use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
 
 /// Parameters of `textDocument/hover`.
@@ -206,6 +207,11 @@ impl From<Vec<Location>> for GotoDefinitionResponse {
 }
 
 /// Parameters of `textDocument/references`.
+///
+/// Supports both progress mixins: a large search may report progress
+/// against [`work_done`](Self::work_done) and stream chunks of matches on
+/// [`partial_result`](Self::partial_result) via
+/// [`crate::Client::send_progress`] before returning the final list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReferenceParams {
     /// The document and position to find references from.
@@ -213,6 +219,10 @@ pub struct ReferenceParams {
     pub text_document_position: TextDocumentPositionParams,
     /// Reference-search options.
     pub context: ReferenceContext,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// Options for a `textDocument/references` request.

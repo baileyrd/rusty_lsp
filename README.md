@@ -115,12 +115,16 @@ Core navigation and editing requests (`hover`, `completion` + resolve,
 (`formatting`/`rangeFormatting`/`onTypeFormatting`, `foldingRange`,
 `selectionRange`, `codeLens` + resolve, `documentLink` + resolve,
 `documentColor`/`colorPresentation`, `semanticTokens` full/delta/range,
-`inlayHint` + resolve), and notifications
-(`didOpen`/`didChange`/`didClose`/`didSave`,
+`inlayHint` + resolve), diagnostics (push via `publishDiagnostics`, and the
+pull model via `textDocument/diagnostic`/`workspace/diagnostic`), and
+notifications (`didOpen`/`didChange`/`didClose`/`didSave`,
 `workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`)
-have typed trait methods. For anything else — call/type hierarchy, notebook
-sync, and so on — override the escape hatches and advertise the capability
-through `ServerCapabilities::extra`:
+have typed trait methods. `references`, `workspace/symbol`, `documentSymbol`,
+`formatting`, and `codeAction` also accept the spec's `workDoneToken` /
+`partialResultToken` progress mixins, streamable via
+[`Client::send_progress`](src/client.rs). For anything else — call/type
+hierarchy, notebook sync, and so on — override the escape hatches and
+advertise the capability through `ServerCapabilities::extra`:
 
 ```rust,ignore
 async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Value> {
