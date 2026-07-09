@@ -58,10 +58,12 @@
 //! | [`service`] | The [`LanguageServer`] trait you implement |
 //! | [`client`] | The [`Client`] handle for server→client messages |
 //! | [`server`] | The [`Server`] runtime: dispatch, lifecycle, cancellation |
+//! | [`documents`] | Optional managed store of open document text |
 //!
 //! [lsp]: https://microsoft.github.io/language-server-protocol/
 
 pub mod client;
+pub mod documents;
 pub mod error;
 pub mod jsonrpc;
 pub mod lsp;
@@ -71,6 +73,7 @@ pub mod text;
 pub mod transport;
 
 pub use client::Client;
+pub use documents::{Document, Documents};
 pub use error::{Error, Result};
 pub use server::Server;
 pub use service::LanguageServer;

@@ -9,8 +9,10 @@ use crate::error::{Error, Result};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
     ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ConfigurationItem, ConfigurationParams,
-    Diagnostic, LogMessageParams, MessageType, ProgressParams, ProgressToken,
-    PublishDiagnosticsParams, ShowMessageParams, Uri, WorkDoneProgress, WorkDoneProgressBegin,
+    Diagnostic, LogMessageParams, MessageActionItem, MessageType, ProgressParams, ProgressToken,
+    PublishDiagnosticsParams, Registration, RegistrationParams, ShowDocumentParams,
+    ShowDocumentResult, ShowMessageParams, ShowMessageRequestParams, Unregistration,
+    UnregistrationParams, Uri, WorkDoneProgress, WorkDoneProgressBegin,
     WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
 };
 use serde::Serialize;
@@ -137,6 +139,61 @@ impl Client {
                 message: message.into(),
             },
         )
+    }
+
+    /// Show the user a message with a set of actions to choose from
+    /// (`window/showMessageRequest`), and await their choice. Returns
+    /// `Ok(None)` if the user dismissed the prompt without choosing.
+    pub async fn show_message_request(
+        &self,
+        typ: MessageType,
+        message: impl Into<String>,
+        actions: Vec<MessageActionItem>,
+    ) -> Result<Option<MessageActionItem>> {
+        self.send_request(
+            "window/showMessageRequest",
+            ShowMessageRequestParams {
+                typ,
+                message: message.into(),
+                actions: if actions.is_empty() {
+                    None
+                } else {
+                    Some(actions)
+                },
+            },
+        )
+        .await
+    }
+
+    /// Ask the client to open or reveal a document (`window/showDocument`,
+    /// LSP 3.16) — e.g. a generated file, or an external URL when `external`
+    /// is set on `params`.
+    pub async fn show_document(&self, params: ShowDocumentParams) -> Result<ShowDocumentResult> {
+        self.send_request("window/showDocument", params).await
+    }
+
+    /// Register interest in one or more capabilities after `initialize`
+    /// (`client/registerCapability`), e.g. to scope a feature to a
+    /// `documentSelector` or advertise something not declared statically in
+    /// [`crate::lsp::ServerCapabilities`].
+    pub async fn register_capability(&self, registrations: Vec<Registration>) -> Result<()> {
+        self.send_request(
+            "client/registerCapability",
+            RegistrationParams { registrations },
+        )
+        .await
+    }
+
+    /// Undo a previous [`register_capability`](Self::register_capability)
+    /// call (`client/unregisterCapability`).
+    pub async fn unregister_capability(&self, unregistrations: Vec<Unregistration>) -> Result<()> {
+        self.send_request(
+            "client/unregisterCapability",
+            UnregistrationParams {
+                unregisterations: unregistrations,
+            },
+        )
+        .await
     }
 
     /// Ask the client to reserve `token` for a subsequent work-done-progress

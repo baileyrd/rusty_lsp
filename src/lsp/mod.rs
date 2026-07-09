@@ -24,6 +24,7 @@ pub mod lifecycle;
 pub mod links;
 pub mod progress;
 pub mod ranges;
+pub mod registration;
 pub mod rename;
 pub mod semantic_tokens;
 pub mod signature;
@@ -91,6 +92,7 @@ pub use ranges::{
     FoldingRange, FoldingRangeKind, FoldingRangeParams, SelectionRange, SelectionRangeParams,
     folding_range_kind,
 };
+pub use registration::{Registration, RegistrationParams, Unregistration, UnregistrationParams};
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
 pub use semantic_tokens::{
     SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensDeltaResult,
@@ -105,7 +107,10 @@ pub use symbols::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolInformation,
     WorkspaceSymbolParams,
 };
-pub use window::{LogMessageParams, ShowMessageParams};
+pub use window::{
+    LogMessageParams, MessageActionItem, ShowDocumentParams, ShowDocumentResult, ShowMessageParams,
+    ShowMessageRequestParams,
+};
 pub use workspace::{
     ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ConfigurationItem, ConfigurationParams,
     DidChangeConfigurationParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,

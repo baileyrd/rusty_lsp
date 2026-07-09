@@ -37,6 +37,7 @@ build one on top of.
 | [`service`](src/service.rs) | The `LanguageServer` trait you implement |
 | [`client`](src/client.rs) | The `Client` handle for server → client messages |
 | [`server`](src/server.rs) | The `Server` runtime: dispatch, lifecycle, cancellation |
+| [`documents`](src/documents.rs) | Optional managed store of open document text |
 
 ## Adding the dependency
 
@@ -104,7 +105,45 @@ client.log_message(MessageType::Info, "indexing complete")?;
 let config: MyConfig = client
     .send_request("workspace/configuration", params)
     .await?;
+
+// Typed helpers for the common server -> client requests:
+client.show_message_request(MessageType::Info, "Retry?", actions).await?;
+client.show_document(ShowDocumentParams { uri, ..Default::default() }).await?;
+client.register_capability(vec![Registration::new("1", "textDocument/formatting", None)]).await?;
+client.unregister_capability(vec![Unregistration { id: "1".into(), method: "textDocument/formatting".into() }]).await?;
 ```
+
+### Managing document text
+
+[`Documents`](src/documents.rs) is an optional, concurrency-safe store of
+open document text that applies `didOpen`/`didChange`/`didClose` for you,
+including incremental (range) edits, so a backend doesn't have to hand-roll
+a `HashMap<Uri, String>`:
+
+```rust,ignore
+struct Backend {
+    client: Client,
+    documents: Documents,
+}
+
+async fn did_open(&self, params: DidOpenTextDocumentParams) {
+    self.documents.did_open(&params).await;
+}
+
+async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+    let uri = &params.text_document_position.text_document.uri;
+    let Some(doc) = self.documents.get(uri).await else { return Ok(None) };
+    // ... inspect doc.text ...
+}
+```
+
+It's entirely optional — wire up the matching `LanguageServer` methods only
+if you want it; the framework doesn't require or assume it exists.
+
+A backend can also inspect what the client declared support for via
+`ClientCapabilities::get`/`supports`, which walk the raw capabilities object
+by dotted path (e.g. `capabilities.supports("workspace.applyEdit")`) without
+requiring every capability leaf to have its own typed field.
 
 ### Handling methods the framework doesn't model
 
@@ -140,7 +179,8 @@ async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Va
 ## Example server
 
 [`examples/text_server.rs`](examples/text_server.rs) is a complete, runnable
-backend for plain-text documents. It tracks open buffers and provides:
+backend for plain-text documents. It tracks open buffers with
+[`Documents`](src/documents.rs) (including incremental edits) and provides:
 
 - **diagnostics** — flags `TODO` / `FIXME` / `XXX` markers, republished on each edit;
 - **hover** — the word under the cursor and how often it occurs;

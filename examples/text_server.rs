@@ -5,7 +5,8 @@
 //!
 //! - **Lifecycle & capabilities** — advertises full-document sync, hover, and
 //!   completion in `initialize`.
-//! - **Document sync** — tracks open buffers in an in-memory store.
+//! - **Document sync** — tracks open buffers using [`rusty_lsp::Documents`],
+//!   including incremental edits.
 //! - **Diagnostics** (server → client) — flags `TODO` / `FIXME` / `XXX`
 //!   markers, republished on every edit.
 //! - **Hover** — reports the word under the cursor and how often it occurs.
@@ -28,44 +29,34 @@ use rusty_lsp::lsp::{
     Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncKind, Uri,
 };
 use rusty_lsp::text::{byte_to_utf16_column, utf16_column_to_byte};
-use rusty_lsp::{Client, LanguageServer, Server};
-use std::collections::{BTreeSet, HashMap};
-use tokio::sync::RwLock;
+use rusty_lsp::{Client, Documents, LanguageServer, Server};
+use std::collections::BTreeSet;
 
 /// Markers the server reports as warnings.
 const MARKERS: [&str; 3] = ["TODO", "FIXME", "XXX"];
 /// Minimum length for a word to be offered as a completion.
 const MIN_COMPLETION_LEN: usize = 3;
 
-/// An open document: its current text and the version it was last set to.
-struct Document {
-    text: String,
-    version: i32,
-}
-
 /// The language server backend.
 struct TextServer {
     client: Client,
-    documents: RwLock<HashMap<Uri, Document>>,
+    documents: Documents,
 }
 
 impl TextServer {
     fn new(client: Client) -> Self {
         TextServer {
             client,
-            documents: RwLock::new(HashMap::new()),
+            documents: Documents::new(),
         }
     }
 
     /// Recompute and publish diagnostics for `uri` from the stored buffer.
     async fn publish_diagnostics(&self, uri: &Uri) {
-        let (diagnostics, version) = {
-            let documents = self.documents.read().await;
-            match documents.get(uri) {
-                Some(doc) => (compute_diagnostics(&doc.text), Some(doc.version)),
-                // Document was closed; clear any diagnostics for it.
-                None => (Vec::new(), None),
-            }
+        let (diagnostics, version) = match self.documents.get(uri).await {
+            Some(doc) => (compute_diagnostics(&doc.text), Some(doc.version)),
+            // Document was closed; clear any diagnostics for it.
+            None => (Vec::new(), None),
         };
         let _ = self
             .client
@@ -77,7 +68,7 @@ impl LanguageServer for TextServer {
     async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncKind::Full),
+                text_document_sync: Some(TextDocumentSyncKind::Incremental),
                 hover_provider: Some(true),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Vec::new(),
@@ -99,40 +90,20 @@ impl LanguageServer for TextServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let item = params.text_document;
-        let uri = item.uri.clone();
-        self.documents.write().await.insert(
-            uri.clone(),
-            Document {
-                text: item.text,
-                version: item.version,
-            },
-        );
+        let uri = params.text_document.uri.clone();
+        self.documents.did_open(&params).await;
         self.publish_diagnostics(&uri).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri.clone();
-        {
-            let mut documents = self.documents.write().await;
-            let Some(doc) = documents.get_mut(&uri) else {
-                return;
-            };
-            // Full-sync mode: a change without a range carries the whole buffer.
-            // (Incremental ranges are intentionally unsupported in this demo.)
-            for change in params.content_changes {
-                if change.range.is_none() {
-                    doc.text = change.text;
-                }
-            }
-            doc.version = params.text_document.version;
-        }
+        self.documents.did_change(&params).await;
         self.publish_diagnostics(&uri).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri;
-        self.documents.write().await.remove(&uri);
+        let uri = params.text_document.uri.clone();
+        self.documents.did_close(&params).await;
         // Clear diagnostics for the now-closed document.
         let _ = self.client.publish_diagnostics(uri, Vec::new(), None);
     }
@@ -140,8 +111,7 @@ impl LanguageServer for TextServer {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let position = params.text_document_position.position;
         let uri = params.text_document_position.text_document.uri;
-        let documents = self.documents.read().await;
-        let Some(doc) = documents.get(&uri) else {
+        let Some(doc) = self.documents.get(&uri).await else {
             return Ok(None);
         };
         Ok(hover_at(&doc.text, position))
@@ -149,8 +119,7 @@ impl LanguageServer for TextServer {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
-        let documents = self.documents.read().await;
-        let Some(doc) = documents.get(&uri) else {
+        let Some(doc) = self.documents.get(&uri).await else {
             return Ok(None);
         };
         let items = completion_items(&doc.text);
