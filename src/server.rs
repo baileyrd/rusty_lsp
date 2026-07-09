@@ -18,6 +18,7 @@ use crate::client::Client;
 use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
+    CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CodeAction, CodeActionParams, CodeLens, CodeLensParams, ColorPresentationParams,
     CompletionItem, CompletionParams, CreateFilesParams, DefinitionParams, DeleteFilesParams,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
@@ -27,8 +28,9 @@ use crate::lsp::{
     DocumentRangeFormattingParams, DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams,
     HoverParams, InitializeParams, InlayHint, InlayHintParams, MessageType, ReferenceParams,
     RenameFilesParams, RenameParams, SelectionRangeParams, SemanticTokensDeltaParams,
-    SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams,
-    TextDocumentPositionParams, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
+    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
+    TextDocumentPositionParams, TypeHierarchyPrepareParams, TypeHierarchySubtypesParams,
+    TypeHierarchySupertypesParams, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
     WorkspaceDiagnosticParams, WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
@@ -546,6 +548,36 @@ async fn dispatch_request<B: LanguageServer>(
                 .will_delete_files(parse_params::<DeleteFilesParams>(params)?)
                 .await?,
         ),
+        "textDocument/prepareCallHierarchy" => to_json(
+            &backend
+                .prepare_call_hierarchy(parse_params::<CallHierarchyPrepareParams>(params)?)
+                .await?,
+        ),
+        "callHierarchy/incomingCalls" => to_json(
+            &backend
+                .incoming_calls(parse_params::<CallHierarchyIncomingCallsParams>(params)?)
+                .await?,
+        ),
+        "callHierarchy/outgoingCalls" => to_json(
+            &backend
+                .outgoing_calls(parse_params::<CallHierarchyOutgoingCallsParams>(params)?)
+                .await?,
+        ),
+        "textDocument/prepareTypeHierarchy" => to_json(
+            &backend
+                .prepare_type_hierarchy(parse_params::<TypeHierarchyPrepareParams>(params)?)
+                .await?,
+        ),
+        "typeHierarchy/supertypes" => to_json(
+            &backend
+                .supertypes(parse_params::<TypeHierarchySupertypesParams>(params)?)
+                .await?,
+        ),
+        "typeHierarchy/subtypes" => to_json(
+            &backend
+                .subtypes(parse_params::<TypeHierarchySubtypesParams>(params)?)
+                .await?,
+        ),
         _ => backend.handle_request(method, params).await,
     }
 }
@@ -616,6 +648,10 @@ async fn dispatch_notification<B: LanguageServer>(
         },
         "workspace/didDeleteFiles" => match parse_params::<DeleteFilesParams>(params) {
             Ok(p) => backend.did_delete_files(p).await,
+            Err(err) => log_bad_params(client, method, &err),
+        },
+        "$/setTrace" => match parse_params::<SetTraceParams>(params) {
+            Ok(p) => backend.set_trace(p).await,
             Err(err) => log_bad_params(client, method, &err),
         },
         _ => backend.handle_notification(method, params).await,

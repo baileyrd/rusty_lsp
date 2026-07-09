@@ -8,6 +8,8 @@
 use rusty_lsp::error::{Result, codes};
 use rusty_lsp::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use rusty_lsp::lsp::{
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     ClientCapabilities, CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens,
     CodeLensParams, Color, ColorInformation, ColorPresentation, ColorPresentationParams,
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
@@ -22,13 +24,14 @@ use rusty_lsp::lsp::{
     MessageType, Position, PrepareRenameResponse, Range, ReferenceParams, Registration,
     RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
     SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
-    SemanticTokensRangeParams, ServerCapabilities, ServerInfo, ShowDocumentParams, SignatureHelp,
-    SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
-    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, Unregistration,
-    WillSaveTextDocumentParams, WorkDoneProgressBegin, WorkDoneProgressCancelParams,
-    WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceDiagnosticParams,
-    WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport, WorkspaceEdit,
-    WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbolParams, code_action_kind,
+    SemanticTokensRangeParams, ServerCapabilities, ServerInfo, SetTraceParams, ShowDocumentParams,
+    SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, TypeHierarchyItem,
+    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
+    Unregistration, WillSaveTextDocumentParams, WorkDoneProgressBegin,
+    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
+    WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbolParams, code_action_kind,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -372,6 +375,63 @@ impl LanguageServer for TestBackend {
         Ok(Some(PrepareRenameResponse::Range(zero_range())))
     }
 
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        let uri = params.text_document_position.text_document.uri;
+        Ok(Some(vec![call_hierarchy_item("main", uri)]))
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        Ok(Some(vec![CallHierarchyIncomingCall {
+            from: call_hierarchy_item("caller", params.item.uri),
+            from_ranges: vec![zero_range()],
+        }]))
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        Ok(Some(vec![CallHierarchyOutgoingCall {
+            to: call_hierarchy_item("callee", params.item.uri),
+            from_ranges: vec![zero_range()],
+        }]))
+    }
+
+    async fn prepare_type_hierarchy(
+        &self,
+        params: TypeHierarchyPrepareParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        let uri = params.text_document_position.text_document.uri;
+        Ok(Some(vec![type_hierarchy_item("Main", uri)]))
+    }
+
+    async fn supertypes(
+        &self,
+        params: TypeHierarchySupertypesParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        Ok(Some(vec![type_hierarchy_item("Super", params.item.uri)]))
+    }
+
+    async fn subtypes(
+        &self,
+        params: TypeHierarchySubtypesParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        Ok(Some(vec![type_hierarchy_item("Sub", params.item.uri)]))
+    }
+
+    async fn set_trace(&self, params: SetTraceParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!("trace set to {:?}", params.value),
+        );
+    }
+
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
         Ok(Some(json!({"ran": params.command})))
     }
@@ -645,6 +705,32 @@ fn marker_location(marker: &str) -> Location {
     Location {
         uri: format!("file:///{marker}"),
         range: zero_range(),
+    }
+}
+
+fn call_hierarchy_item(name: &str, uri: String) -> CallHierarchyItem {
+    CallHierarchyItem {
+        name: name.to_owned(),
+        kind: SymbolKind::Function,
+        tags: vec![],
+        detail: None,
+        uri,
+        range: zero_range(),
+        selection_range: zero_range(),
+        data: None,
+    }
+}
+
+fn type_hierarchy_item(name: &str, uri: String) -> TypeHierarchyItem {
+    TypeHierarchyItem {
+        name: name.to_owned(),
+        kind: SymbolKind::Class,
+        tags: vec![],
+        detail: None,
+        uri,
+        range: zero_range(),
+        selection_range: zero_range(),
+        data: None,
     }
 }
 
@@ -1042,6 +1128,88 @@ async fn rename_and_prepare_rename_round_trip() {
 }
 
 #[tokio::test]
+async fn call_hierarchy_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/prepareCallHierarchy",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let items = response.result.expect("result");
+    assert_eq!(items[0]["name"], json!("main"));
+    assert_eq!(items[0]["uri"], json!("file:///a.txt"));
+
+    let item = items[0].clone();
+
+    let id = harness
+        .request("callHierarchy/incomingCalls", json!({"item": item.clone()}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let calls = response.result.expect("result");
+    assert_eq!(calls[0]["from"]["name"], json!("caller"));
+
+    let id = harness
+        .request("callHierarchy/outgoingCalls", json!({"item": item}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let calls = response.result.expect("result");
+    assert_eq!(calls[0]["to"]["name"], json!("callee"));
+}
+
+#[tokio::test]
+async fn type_hierarchy_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/prepareTypeHierarchy",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let items = response.result.expect("result");
+    assert_eq!(items[0]["name"], json!("Main"));
+
+    let item = items[0].clone();
+
+    let id = harness
+        .request("typeHierarchy/supertypes", json!({"item": item.clone()}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let supertypes = response.result.expect("result");
+    assert_eq!(supertypes[0]["name"], json!("Super"));
+
+    let id = harness
+        .request("typeHierarchy/subtypes", json!({"item": item}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let subtypes = response.result.expect("result");
+    assert_eq!(subtypes[0]["name"], json!("Sub"));
+}
+
+#[tokio::test]
+async fn set_trace_notification_is_routed() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    harness
+        .notify("$/setTrace", json!({"value": "verbose"}))
+        .await;
+
+    let note = harness.recv_notification("window/logMessage").await;
+    let message = note.params.expect("params")["message"]
+        .as_str()
+        .expect("string")
+        .to_owned();
+    assert!(message.contains("Verbose"), "message was: {message}");
+}
+
+#[tokio::test]
 async fn execute_command_runs_and_returns_a_result() {
     let mut harness = Harness::start();
     harness.initialize().await;
@@ -1321,9 +1489,7 @@ async fn inlay_hint_and_resolve_round_trip() {
 async fn unknown_method_yields_method_not_found() {
     let mut harness = Harness::start();
     harness.initialize().await;
-    let id = harness
-        .request("textDocument/prepareCallHierarchy", json!({}))
-        .await;
+    let id = harness.request("notebookDocument/didOpen", json!({})).await;
     let response = harness.recv_response(&id).await;
     assert_eq!(response.error.expect("error").code, codes::METHOD_NOT_FOUND);
 }

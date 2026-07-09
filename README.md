@@ -159,18 +159,21 @@ pull model via `textDocument/diagnostic`/`workspace/diagnostic`), file
 lifecycle (`willSave`/`willSaveWaitUntil`, `will`/`didCreateFiles`,
 `will`/`didRenameFiles`, `will`/`didDeleteFiles`), and notifications
 (`didOpen`/`didChange`/`didClose`/`didSave`,
-`workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`)
-have typed trait methods. `references`, `workspace/symbol`, `documentSymbol`,
-`formatting`, and `codeAction` also accept the spec's `workDoneToken` /
-`partialResultToken` progress mixins, streamable via
-[`Client::send_progress`](src/client.rs). For anything else — call/type
-hierarchy, notebook sync, and so on — override the escape hatches and
-advertise the capability through `ServerCapabilities::extra`:
+`workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`),
+call hierarchy (`prepareCallHierarchy`, `incomingCalls`, `outgoingCalls`),
+type hierarchy (`prepareTypeHierarchy`, `supertypes`, `subtypes`), and
+`$/setTrace` (paired with [`Client::log_trace`](src/client.rs) for
+`$/logTrace`) have typed trait methods. `references`, `workspace/symbol`,
+`documentSymbol`, `formatting`, and `codeAction` also accept the spec's
+`workDoneToken` / `partialResultToken` progress mixins, streamable via
+[`Client::send_progress`](src/client.rs). For anything else — notebook
+document sync, and so on — override the escape hatches and advertise the
+capability through `ServerCapabilities::extra`:
 
 ```rust,ignore
 async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Value> {
     match method {
-        "textDocument/prepareCallHierarchy" => { /* deserialize params, return a JSON result */ }
+        "notebookDocument/didOpen" => { /* deserialize params, return a JSON result */ }
         other => Err(Error::method_not_found(other.to_owned())),
     }
 }

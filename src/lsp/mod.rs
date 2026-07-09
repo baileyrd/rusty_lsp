@@ -19,6 +19,7 @@ pub mod enums;
 pub mod features;
 pub mod file_operations;
 pub mod formatting;
+pub mod hierarchy;
 pub mod inlay_hint;
 pub mod lifecycle;
 pub mod links;
@@ -29,6 +30,7 @@ pub mod rename;
 pub mod semantic_tokens;
 pub mod signature;
 pub mod symbols;
+pub mod trace;
 pub mod window;
 pub mod workspace;
 
@@ -71,13 +73,20 @@ pub use formatting::{
     DocumentFormattingParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
     DocumentRangeFormattingParams, FormattingOptions,
 };
+pub use hierarchy::{
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    CallHierarchyOptions, CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams,
+    CallHierarchyPrepareParams, TypeHierarchyItem, TypeHierarchyOptions,
+    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
+};
 pub use inlay_hint::{
     InlayHint, InlayHintLabel, InlayHintLabelPart, InlayHintOptions, InlayHintParams,
 };
 pub use lifecycle::{
-    ClientCapabilities, ClientInfo, CodeActionProviderCapability, CompletionOptions,
-    InitializeParams, InitializeResult, RenameProviderCapability, ServerCapabilities, ServerInfo,
-    SignatureHelpOptions, WorkspaceServerCapabilities,
+    CallHierarchyProviderCapability, ClientCapabilities, ClientInfo, CodeActionProviderCapability,
+    CompletionOptions, InitializeParams, InitializeResult, RenameProviderCapability,
+    ServerCapabilities, ServerInfo, SignatureHelpOptions, TypeHierarchyProviderCapability,
+    WorkspaceServerCapabilities,
 };
 pub use links::{
     Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,
@@ -107,6 +116,7 @@ pub use symbols::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolInformation,
     WorkspaceSymbolParams,
 };
+pub use trace::{LogTraceParams, SetTraceParams, TraceValue};
 pub use window::{
     LogMessageParams, MessageActionItem, ShowDocumentParams, ShowDocumentResult, ShowMessageParams,
     ShowMessageRequestParams,
