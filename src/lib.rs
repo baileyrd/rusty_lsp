@@ -54,7 +54,7 @@
 //! | [`transport`] | Content-Length framing over any async byte stream |
 //! | [`jsonrpc`] | JSON-RPC 2.0 request/response/notification model |
 //! | [`lsp`] | Typed LSP protocol data structures |
-//! | [`text`] | UTF-16 ↔ byte position conversions for buffer indexing |
+//! | [`text`] | Position ↔ byte conversions (UTF-16, UTF-8, UTF-32) for buffer indexing |
 //! | [`service`] | The [`LanguageServer`] trait you implement |
 //! | [`client`] | The [`Client`] handle for server→client messages |
 //! | [`server`] | The [`Server`] runtime: dispatch, lifecycle, cancellation |

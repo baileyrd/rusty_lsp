@@ -3,7 +3,7 @@
 
 use super::base::Uri;
 use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
-use super::workspace::WorkspaceFolder;
+use super::workspace::{ExecuteCommandOptions, WorkspaceFolder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -155,6 +155,36 @@ pub struct ServerCapabilities {
     /// Whether the server provides goto-definition support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition_provider: Option<bool>,
+    /// Whether the server provides goto-declaration support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration_provider: Option<bool>,
+    /// Whether the server provides goto-type-definition support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_definition_provider: Option<bool>,
+    /// Whether the server provides goto-implementation support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implementation_provider: Option<bool>,
+    /// Whether the server provides find-references support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references_provider: Option<bool>,
+    /// Whether the server provides document-symbol support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_symbol_provider: Option<bool>,
+    /// Whether the server provides workspace-symbol support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_symbol_provider: Option<bool>,
+    /// Signature-help support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_help_provider: Option<SignatureHelpOptions>,
+    /// Code-action support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_action_provider: Option<CodeActionProviderCapability>,
+    /// Rename support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rename_provider: Option<RenameProviderCapability>,
+    /// Command-execution support and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execute_command_provider: Option<ExecuteCommandOptions>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -171,4 +201,51 @@ pub struct CompletionOptions {
     /// via `completionItem/resolve`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolve_provider: Option<bool>,
+}
+
+/// Options describing the server's `textDocument/signatureHelp` support.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureHelpOptions {
+    /// Characters that trigger signature help automatically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trigger_characters: Vec<String>,
+    /// Characters that re-trigger signature help while it is already showing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retrigger_characters: Vec<String>,
+}
+
+/// Either a plain boolean or [`CodeActionOptions`](super::code_action::CodeActionOptions),
+/// matching the spec's `boolean | CodeActionOptions` shape for `codeActionProvider`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CodeActionProviderCapability {
+    /// `true`/`false`: code actions are (not) supported, with no further
+    /// filtering or resolve support.
+    Simple(bool),
+    /// Code actions are supported with the given options.
+    Options(super::code_action::CodeActionOptions),
+}
+
+impl Default for CodeActionProviderCapability {
+    fn default() -> Self {
+        CodeActionProviderCapability::Simple(false)
+    }
+}
+
+/// Either a plain boolean or [`RenameOptions`](super::rename::RenameOptions),
+/// matching the spec's `boolean | RenameOptions` shape for `renameProvider`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RenameProviderCapability {
+    /// `true`/`false`: rename is (not) supported, with no `prepareRename`.
+    Simple(bool),
+    /// Rename is supported with the given options.
+    Options(super::rename::RenameOptions),
+}
+
+impl Default for RenameProviderCapability {
+    fn default() -> Self {
+        RenameProviderCapability::Simple(false)
+    }
 }

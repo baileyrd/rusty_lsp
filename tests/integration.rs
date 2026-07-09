@@ -8,11 +8,17 @@
 use rusty_lsp::error::{Result, codes};
 use rusty_lsp::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use rusty_lsp::lsp::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    ConfigurationItem, Diagnostic, DiagnosticSeverity, DidChangeWorkspaceFoldersParams,
-    DidOpenTextDocumentParams, Hover, HoverParams, InitializeParams, InitializeResult, Position,
-    Range, ServerCapabilities, ServerInfo, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
+    CodeAction, CodeActionOrCommand, CodeActionParams, CompletionItem, CompletionItemKind,
+    CompletionOptions, CompletionParams, CompletionResponse, ConfigurationItem, Diagnostic,
+    DiagnosticSeverity, DidChangeConfigurationParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidOpenTextDocumentParams, DocumentSymbol,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionResponse,
+    Hover, HoverParams, InitializeParams, InitializeResult, Location, MessageType, Position,
+    PrepareRenameResponse, Range, ReferenceParams, RenameParams, ServerCapabilities, ServerInfo,
+    SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, WorkDoneProgressBegin,
     WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
+    WorkspaceSymbolParams, code_action_kind,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -150,7 +156,7 @@ impl LanguageServer for TestBackend {
 
     async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
         let _ = self.client.log_message(
-            rusty_lsp::lsp::MessageType::Info,
+            MessageType::Info,
             format!(
                 "workspace folders changed: +{} -{}",
                 params.event.added.len(),
@@ -161,9 +167,150 @@ impl LanguageServer for TestBackend {
 
     async fn work_done_progress_cancel(&self, params: WorkDoneProgressCancelParams) {
         let _ = self.client.log_message(
-            rusty_lsp::lsp::MessageType::Info,
+            MessageType::Info,
             format!("progress cancelled: {:?}", params.token),
         );
+    }
+
+    async fn declaration(
+        &self,
+        _params: TextDocumentPositionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        Ok(Some(marker_location("declaration").into()))
+    }
+
+    async fn type_definition(
+        &self,
+        _params: TextDocumentPositionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        Ok(Some(marker_location("type-definition").into()))
+    }
+
+    async fn implementation(
+        &self,
+        _params: TextDocumentPositionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        Ok(Some(marker_location("implementation").into()))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        Ok(Some(vec![Location {
+            uri,
+            range: zero_range(),
+        }]))
+    }
+
+    async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
+        Ok(CompletionItem {
+            detail: Some("resolved".to_owned()),
+            ..item
+        })
+    }
+
+    async fn document_symbol(
+        &self,
+        _params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        Ok(Some(
+            vec![DocumentSymbol::new(
+                "main",
+                SymbolKind::Function,
+                zero_range(),
+                zero_range(),
+            )]
+            .into(),
+        ))
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        Ok(Some(vec![SymbolInformation::new(
+            format!("match:{}", params.query),
+            SymbolKind::Function,
+            marker_location("workspace-symbol"),
+        )]))
+    }
+
+    async fn signature_help(&self, _params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        Ok(Some(SignatureHelp {
+            signatures: vec![SignatureInformation {
+                label: "fn foo(x: i32)".to_owned(),
+                documentation: None,
+                parameters: None,
+                active_parameter: None,
+            }],
+            active_signature: Some(0),
+            active_parameter: Some(0),
+        }))
+    }
+
+    async fn code_action(
+        &self,
+        _params: CodeActionParams,
+    ) -> Result<Option<Vec<CodeActionOrCommand>>> {
+        Ok(Some(vec![
+            CodeAction::new("Fix it")
+                .with_kind(code_action_kind::QUICKFIX)
+                .into(),
+        ]))
+    }
+
+    async fn code_action_resolve(&self, action: CodeAction) -> Result<CodeAction> {
+        Ok(CodeAction {
+            edit: Some(WorkspaceEdit::for_document("file:///a".to_owned(), vec![])),
+            ..action
+        })
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        Ok(Some(WorkspaceEdit::for_document(
+            uri,
+            vec![TextEdit::new(zero_range(), params.new_name)],
+        )))
+    }
+
+    async fn prepare_rename(
+        &self,
+        _params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        Ok(Some(PrepareRenameResponse::Range(zero_range())))
+    }
+
+    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+        Ok(Some(json!({"ran": params.command})))
+    }
+
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!("config changed: {}", params.settings),
+        );
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let _ = self.client.log_message(
+            MessageType::Info,
+            format!("watched files changed: {}", params.changes.len()),
+        );
+    }
+}
+
+/// A zero-width range at the document start, used by tests that don't care
+/// about the specific range returned.
+fn zero_range() -> Range {
+    Range::new(Position::new(0, 0), Position::new(0, 1))
+}
+
+/// A `Location` whose URI embeds `marker`, so tests can assert exactly which
+/// handler produced a given navigation result.
+fn marker_location(marker: &str) -> Location {
+    Location {
+        uri: format!("file:///{marker}"),
+        range: zero_range(),
     }
 }
 
@@ -411,6 +558,206 @@ async fn completion_returns_array_of_items() {
     assert_eq!(items[0]["label"], json!("alpha"));
     assert_eq!(items[0]["kind"], json!(1));
     assert_eq!(items[1]["label"], json!("beta"));
+}
+
+#[tokio::test]
+async fn declaration_type_definition_implementation_route_to_distinct_handlers() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    for (method, marker) in [
+        ("textDocument/declaration", "declaration"),
+        ("textDocument/typeDefinition", "type-definition"),
+        ("textDocument/implementation", "implementation"),
+    ] {
+        let id = harness
+            .request(method, position_params("file:///a.txt", 0, 0))
+            .await;
+        let response = harness.recv_response(&id).await;
+        let result = response.result.expect("result");
+        assert_eq!(result["uri"], json!(format!("file:///{marker}")));
+    }
+}
+
+#[tokio::test]
+async fn references_returns_locations() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let mut params = position_params("file:///a.txt", 0, 0);
+    params["context"] = json!({"includeDeclaration": true});
+    let id = harness.request("textDocument/references", params).await;
+    let response = harness.recv_response(&id).await;
+    let locations = response.result.expect("result");
+    assert_eq!(locations[0]["uri"], json!("file:///a.txt"));
+}
+
+#[tokio::test]
+async fn completion_item_resolve_enriches_the_item() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request("completionItem/resolve", json!({"label": "alpha"}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let item = response.result.expect("result");
+    assert_eq!(item["label"], json!("alpha"));
+    assert_eq!(item["detail"], json!("resolved"));
+}
+
+#[tokio::test]
+async fn document_symbol_returns_nested_symbols() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/documentSymbol",
+            json!({"textDocument": {"uri": "file:///a.txt"}}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let symbols = response.result.expect("result");
+    assert_eq!(symbols[0]["name"], json!("main"));
+    assert_eq!(symbols[0]["kind"], json!(12));
+}
+
+#[tokio::test]
+async fn workspace_symbol_search_echoes_the_query() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request("workspace/symbol", json!({"query": "foo"}))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let symbols = response.result.expect("result");
+    assert_eq!(symbols[0]["name"], json!("match:foo"));
+}
+
+#[tokio::test]
+async fn signature_help_returns_active_signature() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/signatureHelp",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let help = response.result.expect("result");
+    assert_eq!(help["signatures"][0]["label"], json!("fn foo(x: i32)"));
+    assert_eq!(help["activeParameter"], json!(0));
+}
+
+#[tokio::test]
+async fn code_action_and_resolve_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+                "context": {"diagnostics": []},
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let actions = response.result.expect("result");
+    assert_eq!(actions[0]["title"], json!("Fix it"));
+    assert_eq!(actions[0]["kind"], json!("quickfix"));
+
+    let resolve_id = harness
+        .request("codeAction/resolve", actions[0].clone())
+        .await;
+    let resolved = harness.recv_response(&resolve_id).await;
+    let action = resolved.result.expect("result");
+    assert_eq!(action["edit"]["changes"]["file:///a"], json!([]));
+}
+
+#[tokio::test]
+async fn rename_and_prepare_rename_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let mut params = position_params("file:///a.txt", 0, 0);
+    params["newName"] = json!("renamed");
+    let id = harness.request("textDocument/rename", params).await;
+    let response = harness.recv_response(&id).await;
+    let edit = response.result.expect("result");
+    assert_eq!(
+        edit["changes"]["file:///a.txt"][0]["newText"],
+        json!("renamed")
+    );
+
+    let id = harness
+        .request(
+            "textDocument/prepareRename",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let prepared = response.result.expect("result");
+    assert_eq!(prepared["start"]["line"], json!(0));
+}
+
+#[tokio::test]
+async fn execute_command_runs_and_returns_a_result() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "workspace/executeCommand",
+            json!({"command": "my.command", "arguments": []}),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result.expect("result")["ran"], json!("my.command"));
+}
+
+#[tokio::test]
+async fn did_change_configuration_notification_is_routed() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    harness
+        .notify(
+            "workspace/didChangeConfiguration",
+            json!({"settings": {"tabSize": 4}}),
+        )
+        .await;
+
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(
+        note.params.unwrap()["message"],
+        json!("config changed: {\"tabSize\":4}")
+    );
+}
+
+#[tokio::test]
+async fn did_change_watched_files_notification_is_routed() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    harness
+        .notify(
+            "workspace/didChangeWatchedFiles",
+            json!({"changes": [{"uri": "file:///a", "type": 2}]}),
+        )
+        .await;
+
+    let note = harness.recv_notification("window/logMessage").await;
+    assert_eq!(
+        note.params.unwrap()["message"],
+        json!("watched files changed: 1")
+    );
 }
 
 #[tokio::test]

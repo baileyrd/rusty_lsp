@@ -1,5 +1,5 @@
-//! Language-feature request parameters and results: hover, completion, and
-//! goto-definition.
+//! Language-feature request parameters and results: hover, completion,
+//! goto-definition, and find-references.
 
 use super::base::{Location, Range, TextDocumentPositionParams};
 use super::enums::{CompletionItemKind, CompletionTriggerKind, MarkupKind};
@@ -203,4 +203,22 @@ impl From<Vec<Location>> for GotoDefinitionResponse {
     fn from(locations: Vec<Location>) -> Self {
         GotoDefinitionResponse::Array(locations)
     }
+}
+
+/// Parameters of `textDocument/references`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReferenceParams {
+    /// The document and position to find references from.
+    #[serde(flatten)]
+    pub text_document_position: TextDocumentPositionParams,
+    /// Reference-search options.
+    pub context: ReferenceContext,
+}
+
+/// Options for a `textDocument/references` request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceContext {
+    /// Whether to include the symbol's own declaration in the results.
+    pub include_declaration: bool,
 }
