@@ -108,11 +108,23 @@ pub async fn write_message<W>(writer: &mut W, message: &Message) -> Result<()>
 where
     W: AsyncWrite + Unpin,
 {
-    let body = serde_json::to_vec(message)?;
-    let header = format!("Content-Length: {}\r\n\r\n", body.len());
-    writer.write_all(header.as_bytes()).await?;
-    writer.write_all(&body).await?;
+    let mut buf = Vec::new();
+    encode_message(&mut buf, message)?;
+    writer.write_all(&buf).await?;
     writer.flush().await?;
+    Ok(())
+}
+
+/// Append a single framed [`Message`] to `buf` without writing it anywhere.
+///
+/// Lets a caller batch several messages into one buffer and issue a single
+/// `write_all` + `flush` for the lot — one syscall pair instead of one per
+/// message, which matters when many responses become ready back-to-back
+/// under concurrent load.
+pub fn encode_message(buf: &mut Vec<u8>, message: &Message) -> Result<()> {
+    let body = serde_json::to_vec(message)?;
+    buf.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
+    buf.extend_from_slice(&body);
     Ok(())
 }
 
