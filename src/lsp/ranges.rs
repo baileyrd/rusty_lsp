@@ -26,6 +26,10 @@ pub type FoldingRangeKind = String;
 pub struct FoldingRangeParams {
     /// The document to compute folding ranges for.
     pub text_document: TextDocumentIdentifier,
+    #[serde(flatten)]
+    pub work_done: super::progress::WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: super::progress::PartialResultParams,
 }
 
 /// One collapsible region in a document.
@@ -82,6 +86,10 @@ pub struct SelectionRangeParams {
     /// The cursor positions to compute a selection-range chain for, one per
     /// position (results are returned in the same order).
     pub positions: Vec<Position>,
+    #[serde(flatten)]
+    pub work_done: super::progress::WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: super::progress::PartialResultParams,
 }
 
 /// A selection range and the chain of ever-larger enclosing ranges above it

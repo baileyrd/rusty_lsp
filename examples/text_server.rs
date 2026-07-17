@@ -75,8 +75,8 @@ impl LanguageServer for TextServer {
                 hover_provider: Some(true),
                 document_highlight_provider: Some(true),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Vec::new(),
                     resolve_provider: Some(false),
+                    ..Default::default()
                 }),
                 ..Default::default()
             },
