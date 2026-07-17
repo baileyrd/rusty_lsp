@@ -21,8 +21,8 @@ build one on top of.
 |---|---|
 | **Extension point** | One trait, `LanguageServer`. Every method except `initialize` has a default, so a minimal server is just `initialize` returning its capabilities. |
 | **Async without `async-trait`** | Trait methods are declared `-> impl Future + Send` (RPITIT). You still write the bodies as ordinary `async fn`. The `+ Send` bound lets request handlers be spawned on a multi-threaded runtime with no boxing layer. |
-| **Concurrency** | Notifications run in receipt order (so document state stays consistent — a `didChange` is applied before a later request observes the buffer), while requests are spawned so a slow handler never blocks the loop. |
-| **Cancellation** | `$/cancelRequest` aborts the in-flight handler and replies with `RequestCancelled` (`-32800`). The bookkeeping guarantees each request is answered **exactly once**, even when a handler completes at the same instant a cancel arrives. |
+| **Concurrency** | Notifications run in receipt order (so document state stays consistent — a `didChange` is applied before a later request observes the buffer), while requests are spawned so a slow handler never blocks the loop. `Server::with_max_concurrent_requests` optionally caps how many handler bodies run at once, and `Server::with_outbound_queue_limit` bounds the output queue against a client that stops reading. |
+| **Cancellation** | `$/cancelRequest` aborts the in-flight handler and replies with `RequestCancelled` (`-32800`). The bookkeeping guarantees each request is answered **exactly once**, even when a handler completes at the same instant a cancel arrives. Handlers additionally see a cooperative [`CancelToken`](src/cancel.rs) (via `rusty_lsp::cancel::current()`) that reaches work an abort cannot: `spawn_blocking` computations, helper tasks, CPU-bound stretches. |
 | **Lifecycle** | `initialize` is enforced first; requests before it get `ServerNotInitialized` (`-32002`); a second `initialize` is rejected; work after `shutdown` is refused; `exit` (or EOF at a frame boundary) stops the loop cleanly. |
 | **Extensibility** | Unmodelled methods reach `handle_request` / `handle_notification`, and `ServerCapabilities::extra` lets you advertise any capability the framework does not type. |
 
@@ -46,7 +46,7 @@ tagged release:
 
 ```toml
 [dependencies]
-rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.1.1" }
+rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.2.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -111,6 +111,36 @@ client.show_message_request(MessageType::Info, "Retry?", actions).await?;
 client.show_document(ShowDocumentParams { uri, ..Default::default() }).await?;
 client.register_capability(vec![Registration::new("1", "textDocument/formatting", None)]).await?;
 client.unregister_capability(vec![Unregistration { id: "1".into(), method: "textDocument/formatting".into() }]).await?;
+client.workspace_folders().await?;      // workspace/workspaceFolders
+client.telemetry_event(payload)?;       // telemetry/event
+
+// Don't let a wedged editor hang a handler forever:
+let cfg: Vec<Value> = client
+    .send_request_with_timeout("workspace/configuration", params, Duration::from_secs(5))
+    .await?;
+
+// Leak-proof work-done progress (`end` is sent even on early return / panic):
+let progress = client.begin_progress("indexing", WorkDoneProgressBegin {
+    title: "Indexing".into(), ..Default::default()
+})?;
+progress.report(WorkDoneProgressReport { percentage: Some(50), ..Default::default() })?;
+progress.finish(WorkDoneProgressEnd { message: Some("done".into()) })?;
+```
+
+### Cancellation that reaches everything
+
+`$/cancelRequest` aborts the handler task automatically. For work an abort
+cannot reach — `spawn_blocking`, helper tasks, long CPU-bound loops — every
+request handler also runs inside a cooperative token scope:
+
+```rust,ignore
+async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+    let token = rusty_lsp::cancel::current().unwrap_or_default();
+    let hits = tokio::task::spawn_blocking(move || {
+        big_index.scan(|item| !token.is_cancelled() /* keep going? */)
+    }).await?;
+    Ok(Some(hits))
+}
 ```
 
 ### Managing document text
@@ -137,8 +167,24 @@ async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
 }
 ```
 
+`Documents` is position-encoding-aware (`Documents::with_encoding` for
+servers that negotiated UTF-8/UTF-32), guards against replayed stale
+`didChange` versions, and offers a borrow-based accessor for hot paths:
+
+```rust,ignore
+// No full-text clone per request:
+let hover = self.documents.with(&uri, |doc| hover_at(&doc.text, position)).await;
+```
+
 It's entirely optional — wire up the matching `LanguageServer` methods only
 if you want it; the framework doesn't require or assume it exists.
+
+URIs are a lightweight [`Uri`](src/lsp/base.rs) newtype that normalizes on
+construction (scheme case, percent-encoding hex), so differently-spelled
+equivalents hash and compare equal, with `Uri::from_file_path` /
+`Uri::to_file_path` for filesystem conversion. For position math at scale,
+[`text::LineIndex`](src/text.rs) turns per-conversion `O(document)` scans
+into a binary search over precomputed line starts.
 
 A backend can also inspect what the client declared support for via
 `ClientCapabilities::get`/`supports`, which walk the raw capabilities object
@@ -162,23 +208,34 @@ lifecycle (`willSave`/`willSaveWaitUntil`, `will`/`didCreateFiles`,
 `workspace/didChangeConfiguration`/`didChangeWatchedFiles`/`didChangeWorkspaceFolders`,
 `notebookDocument/didOpen`/`didChange`/`didSave`/`didClose`),
 call hierarchy (`prepareCallHierarchy`, `incomingCalls`, `outgoingCalls`),
-type hierarchy (`prepareTypeHierarchy`, `supertypes`, `subtypes`), and
+type hierarchy (`prepareTypeHierarchy`, `supertypes`, `subtypes`),
+`workspace/symbol` + `workspaceSymbol/resolve` (both the flat and 3.17
+lazily-resolved forms), `textDocument/moniker`, linked editing ranges,
+inline values (`textDocument/inlineValue`), inline completions
+(`textDocument/inlineCompletion`, 3.18 proposed), and
 `$/setTrace` (paired with [`Client::log_trace`](src/client.rs) for
 `$/logTrace`) have typed trait methods. `references`, `workspace/symbol`,
 `documentSymbol`, `formatting`, and `codeAction` also accept the spec's
 `workDoneToken` / `partialResultToken` progress mixins, streamable via
-[`Client::send_progress`](src/client.rs). For anything else — `textDocument/moniker`,
-linked editing ranges, and so on — override the escape hatches and advertise
+[`Client::send_progress`](src/client.rs). For anything else — `textDocument/documentHighlight`,
+proposed 3.18 methods, and so on — override the escape hatches and advertise
 the capability through `ServerCapabilities::extra`:
 
 ```rust,ignore
 async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Value> {
     match method {
-        "textDocument/moniker" => { /* deserialize params, return a JSON result */ }
+        "textDocument/documentHighlight" => { /* deserialize params, return a JSON result */ }
         other => Err(Error::method_not_found(other.to_owned())),
     }
 }
 ```
+
+## Cargo features
+
+| Feature | Adds |
+|---|---|
+| `tcp` | `Server::from_tcp` for serving an accepted `tokio` TCP connection |
+| `tracing` | Wire-level `tracing` instrumentation of the message loop |
 
 ## Example server
 
@@ -201,9 +258,23 @@ cargo run --example text_server
 
 ## Testing
 
+The crate ships a first-class test harness, [`testing::TestClient`](src/testing.rs),
+that plays the editor's role over in-memory pipes, so backend tests exercise
+the full stack (framing, dispatch, lifecycle, cancellation) with typed
+requests:
+
+```rust,ignore
+let mut client = TestClient::spawn(|client| Backend { client });
+client.initialize(InitializeParams::default()).await?;
+let hover: Option<Hover> = client.request("textDocument/hover", params).await?;
+client.shutdown_and_exit().await?;
+```
+
+For the crate's own suite:
+
 ```sh
-cargo test            # unit + integration + doctests
-cargo clippy --all-targets
+cargo test --all-features
+cargo clippy --all-targets --all-features
 cargo fmt --check
 ```
 

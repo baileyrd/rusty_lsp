@@ -88,7 +88,7 @@ mod tests {
         let params = RenameParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: super::super::base::TextDocumentIdentifier {
-                    uri: "file:///a".to_owned(),
+                    uri: "file:///a".into(),
                 },
                 position: super::super::base::Position::new(0, 0),
             },

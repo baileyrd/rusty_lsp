@@ -1,6 +1,6 @@
 [package]
 name = "rusty_lsp"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "A small, reusable async Language Server Protocol framework. Own the protocol plumbing; implement one trait for your language."
 license = "MIT OR Apache-2.0"
@@ -8,10 +8,17 @@ repository = "https://github.com/baileyrd/rusty_lsp"
 keywords = ["lsp", "language-server", "async", "tokio", "jsonrpc"]
 categories = ["development-tools", "asynchronous"]
 
+[features]
+# `Server::from_tcp`: serve an accepted tokio TCP connection.
+tcp = ["tokio/net"]
+# Wire-level instrumentation via the `tracing` crate.
+tracing = ["dep:tracing"]
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }

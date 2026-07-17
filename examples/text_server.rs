@@ -111,19 +111,22 @@ impl LanguageServer for TextServer {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let position = params.text_document_position.position;
         let uri = params.text_document_position.text_document.uri;
-        let Some(doc) = self.documents.get(&uri).await else {
-            return Ok(None);
-        };
-        Ok(hover_at(&doc.text, position))
+        // `with` borrows the stored text instead of cloning the whole buffer.
+        Ok(self
+            .documents
+            .with(&uri, |doc| hover_at(&doc.text, position))
+            .await
+            .flatten())
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
-        let Some(doc) = self.documents.get(&uri).await else {
-            return Ok(None);
-        };
-        let items = completion_items(&doc.text);
-        Ok(Some(CompletionResponse::Array(items)))
+        Ok(self
+            .documents
+            .with(&uri, |doc| {
+                CompletionResponse::Array(completion_items(&doc.text))
+            })
+            .await)
     }
 }
 

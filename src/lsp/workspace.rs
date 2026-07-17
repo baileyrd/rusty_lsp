@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn workspace_edit_for_document_round_trips() {
         let edit = WorkspaceEdit::for_document(
-            "file:///a".to_owned(),
+            "file:///a".into(),
             vec![TextEdit::new(
                 Range::new(Position::new(0, 0), Position::new(0, 1)),
                 "x",
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn file_event_type_uses_type_keyword() {
         let event = FileEvent {
-            uri: "file:///a".to_owned(),
+            uri: "file:///a".into(),
             typ: FileChangeType::Changed,
         };
         let value = serde_json::to_value(&event).unwrap();

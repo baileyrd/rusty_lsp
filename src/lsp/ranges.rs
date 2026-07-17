@@ -123,3 +123,25 @@ mod tests {
         assert_eq!(value["parent"]["range"]["end"]["character"], json!(1));
     }
 }
+
+/// Parameters of `textDocument/linkedEditingRange` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkedEditingRangeParams {
+    #[serde(flatten)]
+    pub text_document_position: super::base::TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: super::progress::WorkDoneProgressParams,
+}
+
+/// Result of `textDocument/linkedEditingRange`: ranges that should be edited
+/// in lockstep (e.g. an HTML tag's opening and closing names).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedEditingRanges {
+    /// The linked ranges. All have identical content, and none overlaps.
+    pub ranges: Vec<super::base::Range>,
+    /// A regex constraining what edited content keeps the link alive; the
+    /// client falls back to a word-ish default when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub word_pattern: Option<String>,
+}

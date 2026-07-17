@@ -21,8 +21,11 @@ pub mod file_operations;
 pub mod formatting;
 pub mod hierarchy;
 pub mod inlay_hint;
+pub mod inline_completion;
+pub mod inline_value;
 pub mod lifecycle;
 pub mod links;
+pub mod moniker;
 pub mod notebook;
 pub mod progress;
 pub mod ranges;
@@ -57,8 +60,9 @@ pub use document::{
 };
 pub use enums::{
     CodeActionTriggerKind, CompletionItemKind, CompletionTriggerKind, DiagnosticSeverity,
-    FileChangeType, InlayHintKind, MarkupKind, MessageType, NotebookCellKind, PositionEncodingKind,
-    SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSaveReason, TextDocumentSyncKind,
+    FileChangeType, InlayHintKind, InlineCompletionTriggerKind, MarkupKind, MessageType,
+    NotebookCellKind, PositionEncodingKind, SignatureHelpTriggerKind, SymbolKind, SymbolTag,
+    TextDocumentSaveReason, TextDocumentSyncKind,
 };
 pub use features::{
     CompletionContext, CompletionItem, CompletionList, CompletionParams, CompletionResponse,
@@ -83,16 +87,26 @@ pub use hierarchy::{
 pub use inlay_hint::{
     InlayHint, InlayHintLabel, InlayHintLabelPart, InlayHintOptions, InlayHintParams,
 };
+pub use inline_completion::{
+    InlineCompletionContext, InlineCompletionInsertText, InlineCompletionItem,
+    InlineCompletionList, InlineCompletionParams, InlineCompletionResponse, SelectedCompletionInfo,
+    StringValue,
+};
+pub use inline_value::{
+    InlineValue, InlineValueContext, InlineValueEvaluatableExpression, InlineValueParams,
+    InlineValueText, InlineValueVariableLookup,
+};
 pub use lifecycle::{
     CallHierarchyProviderCapability, ClientCapabilities, ClientInfo, CodeActionProviderCapability,
     CompletionOptions, InitializeParams, InitializeResult, RenameProviderCapability,
     ServerCapabilities, ServerInfo, SignatureHelpOptions, TypeHierarchyProviderCapability,
-    WorkspaceServerCapabilities,
+    WorkspaceServerCapabilities, WorkspaceSymbolProviderCapability,
 };
 pub use links::{
     Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,
     DocumentLink, DocumentLinkOptions, DocumentLinkParams,
 };
+pub use moniker::{Moniker, MonikerKind, MonikerParams, UniquenessLevel};
 pub use notebook::{
     DidChangeNotebookDocumentParams, DidCloseNotebookDocumentParams, DidOpenNotebookDocumentParams,
     DidSaveNotebookDocumentParams, ExecutionSummary, NotebookCell, NotebookCellArrayChange,
@@ -106,8 +120,8 @@ pub use progress::{
     WorkDoneProgressParams, WorkDoneProgressReport,
 };
 pub use ranges::{
-    FoldingRange, FoldingRangeKind, FoldingRangeParams, SelectionRange, SelectionRangeParams,
-    folding_range_kind,
+    FoldingRange, FoldingRangeKind, FoldingRangeParams, LinkedEditingRangeParams,
+    LinkedEditingRanges, SelectionRange, SelectionRangeParams, folding_range_kind,
 };
 pub use registration::{Registration, RegistrationParams, Unregistration, UnregistrationParams};
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
@@ -122,7 +136,8 @@ pub use signature::{
 };
 pub use symbols::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolInformation,
-    WorkspaceSymbolParams,
+    WorkspaceSymbol, WorkspaceSymbolLocation, WorkspaceSymbolOptions, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
 };
 pub use trace::{LogTraceParams, SetTraceParams, TraceValue};
 pub use window::{

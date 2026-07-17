@@ -192,7 +192,7 @@ mod tests {
         let params = CallHierarchyPrepareParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: TextDocumentIdentifier {
-                    uri: "file:///a".to_owned(),
+                    uri: "file:///a".into(),
                 },
                 position: Position::new(1, 2),
             },
@@ -212,7 +212,7 @@ mod tests {
             kind: SymbolKind::Function,
             tags: vec![],
             detail: None,
-            uri: "file:///a".to_owned(),
+            uri: "file:///a".into(),
             range: range(),
             selection_range: range(),
             data: None,
@@ -231,7 +231,7 @@ mod tests {
                 kind: SymbolKind::Function,
                 tags: vec![],
                 detail: None,
-                uri: "file:///a".to_owned(),
+                uri: "file:///a".into(),
                 range: range(),
                 selection_range: range(),
                 data: None,
@@ -253,7 +253,7 @@ mod tests {
             kind: SymbolKind::Class,
             tags: vec![],
             detail: Some("mod::Foo".to_owned()),
-            uri: "file:///a".to_owned(),
+            uri: "file:///a".into(),
             range: range(),
             selection_range: range(),
             data: None,
