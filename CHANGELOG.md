@@ -4,6 +4,30 @@ All notable changes to `rusty_lsp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (0.x: minor bumps may break).
 
+## [0.6.1] — 2026-07-17
+
+### Fixed
+
+- **Critical**: a request whose handler has no genuine `.await` inside it
+  (returns on its very first poll — the common case for a trivial,
+  cached, or purely computational result) could have its response
+  **silently dropped** under real concurrent load. `spawn_request` called
+  `tokio::spawn` before registering the task in `in_flight`; on the
+  multi-threaded runtime, the spawned task could run to completion **on
+  another worker thread** and reach its own removal-from-`in_flight`
+  before the spawning thread finished inserting that same entry. Finding
+  nothing to remove, it concluded (incorrectly) that a `$/cancelRequest`
+  had already claimed the request, and skipped sending a response —
+  with no error, no panic, no log: the client's request simply never
+  answers. Found via cross-framework benchmarking (a 8-way concurrent
+  pipelining stress test); reproduced independently outside the crate
+  (a raw Python LSP client, and a separate Rust driver) before being
+  traced to this exact race. Fixed with a start-gate (`oneshot::channel`)
+  that structurally prevents the spawned task from touching `in_flight`
+  until the spawning thread has finished inserting its entry — not a
+  statistical mitigation, a hard ordering guarantee. No public API
+  changes; pure bugfix, safe to upgrade from 0.6.0 unconditionally.
+
 ## [0.6.0] — 2026-07-17
 
 ### Added
