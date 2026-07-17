@@ -26,12 +26,12 @@ use crate::lsp::{
     DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
     DidCloseTextDocumentParams, DidOpenNotebookDocumentParams, DidOpenTextDocumentParams,
     DidSaveNotebookDocumentParams, DidSaveTextDocumentParams, DocumentColorParams,
-    DocumentDiagnosticParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
-    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
-    ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams, InlayHint,
-    InlayHintParams, InlineCompletionParams, InlineValueParams, LinkedEditingRangeParams,
-    MessageType, MonikerParams, ReferenceParams, RenameFilesParams, RenameParams,
-    SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
+    DocumentDiagnosticParams, DocumentFormattingParams, DocumentHighlightParams, DocumentLink,
+    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
+    DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams,
+    InlayHint, InlayHintParams, InlineCompletionParams, InlineValueParams,
+    LinkedEditingRangeParams, MessageType, MonikerParams, ReferenceParams, RenameFilesParams,
+    RenameParams, SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
     SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, TextDocumentPositionParams,
     TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
     WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
@@ -146,7 +146,11 @@ where
     ///
     /// `build` receives a [`Client`] and returns the backend; store the client
     /// so handlers can talk back to the editor. Returns `Ok(())` on a clean
-    /// shutdown, or an error if the transport failed irrecoverably.
+    /// shutdown (a `shutdown` request followed by `exit`, or EOF at a frame
+    /// boundary), and an error if the transport failed irrecoverably — or if
+    /// `exit` arrived without a prior `shutdown`, which the spec says should
+    /// end the process with exit code 1 (returning the error from a
+    /// `fn main() -> Result<()>` does exactly that).
     pub async fn serve<B, F>(self, build: F) -> Result<()>
     where
         B: LanguageServer,
@@ -255,7 +259,17 @@ where
             Message::Response(response) => client.resolve(response),
 
             Message::Notification(note) => match note.method.as_str() {
-                "exit" => break Ok(()),
+                // Per the spec, the server's process should exit with code 1
+                // when `exit` arrives without a prior `shutdown` request.
+                // Surfacing that case as an error lets a `fn main() ->
+                // Result<()>` produce exactly that exit code.
+                "exit" => {
+                    break if shutdown_requested {
+                        Ok(())
+                    } else {
+                        Err(Error::protocol("exit received before shutdown request"))
+                    };
+                }
                 "$/cancelRequest" => cancel_request(&note, &in_flight, &out_tx),
                 "initialized" => {
                     if initialized {
@@ -514,6 +528,11 @@ async fn dispatch_request<B: LanguageServer>(
         "textDocument/references" => to_json(
             &backend
                 .references(parse_params::<ReferenceParams>(params)?)
+                .await?,
+        ),
+        "textDocument/documentHighlight" => to_json(
+            &backend
+                .document_highlight(parse_params::<DocumentHighlightParams>(params)?)
                 .await?,
         ),
         "completionItem/resolve" => to_json(

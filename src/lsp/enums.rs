@@ -2,7 +2,7 @@
 //!
 //! Several LSP enums are transmitted as JSON integers (`1`, `2`, …) rather than
 //! strings. serde derives string discriminants for fieldless enums, so these
-//! types get hand-written codecs via the [`int_enum!`] macro, which keeps the
+//! types get hand-written codecs via the `int_enum!` macro, which keeps the
 //! numeric mapping explicit and reversible.
 
 use serde::{Deserialize, Serialize};
@@ -306,6 +306,49 @@ int_enum! {
         Invoked = 1,
         /// Triggered automatically while the user types.
         Automatic = 2,
+    }
+}
+
+int_enum! {
+    /// The kind of a [`crate::lsp::DocumentHighlight`], used by clients to
+    /// style read vs. write occurrences differently.
+    pub enum DocumentHighlightKind {
+        /// A textual occurrence.
+        Text = 1,
+        /// A read access of a symbol (e.g. reading a variable).
+        Read = 2,
+        /// A write access of a symbol (e.g. assigning to a variable).
+        Write = 3,
+    }
+}
+
+int_enum! {
+    /// A tag qualifying a [`crate::lsp::CompletionItem`].
+    pub enum CompletionItemTag {
+        /// Render the item as obsolete, usually struck through.
+        Deprecated = 1,
+    }
+}
+
+int_enum! {
+    /// How a [`crate::lsp::CompletionItem`]'s insert text should be
+    /// interpreted.
+    pub enum InsertTextFormat {
+        /// Insert the text verbatim.
+        PlainText = 1,
+        /// Interpret the text as an LSP snippet (`${1:placeholder}`, `$0`).
+        Snippet = 2,
+    }
+}
+
+int_enum! {
+    /// A tag qualifying a [`crate::lsp::Diagnostic`], letting clients render
+    /// it specially (faded, struck through) instead of squiggling it.
+    pub enum DiagnosticTag {
+        /// Unused or unnecessary code; clients typically fade it.
+        Unnecessary = 1,
+        /// Deprecated or obsolete code; clients typically strike it through.
+        Deprecated = 2,
     }
 }
 

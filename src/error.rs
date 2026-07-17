@@ -118,6 +118,26 @@ impl Error {
         Error::response(codes::REQUEST_CANCELLED, "request cancelled")
     }
 
+    /// `-32801` the document changed out from under this request; the
+    /// client should re-issue it against the new content. The standard
+    /// reply when a handler detects it raced a `didChange` (e.g. via the
+    /// version guard in [`crate::Documents`]).
+    pub fn content_modified() -> Self {
+        Error::response(codes::CONTENT_MODIFIED, "content modified")
+    }
+
+    /// `-32802` the server cancelled the request itself (LSP 3.17), e.g.
+    /// because it is too busy; the client may re-send it later.
+    pub fn server_cancelled() -> Self {
+        Error::response(codes::SERVER_CANCELLED, "server cancelled the request")
+    }
+
+    /// `-32803` the request failed for a reason that is not the client's
+    /// fault and not a crash — the server is otherwise healthy (LSP 3.17).
+    pub fn request_failed(message: impl Into<String>) -> Self {
+        Error::response(codes::REQUEST_FAILED, message)
+    }
+
     /// Attach structured `data` to a response error. No-op for non-response
     /// variants.
     #[must_use]
@@ -192,5 +212,22 @@ impl From<serde_json::Error> for Error {
 impl From<ResponseError> for Error {
     fn from(e: ResponseError) -> Self {
         Error::Response(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_constructors_map_to_their_codes() {
+        for (error, code) in [
+            (Error::content_modified(), codes::CONTENT_MODIFIED),
+            (Error::server_cancelled(), codes::SERVER_CANCELLED),
+            (Error::request_failed("x"), codes::REQUEST_FAILED),
+            (Error::request_cancelled(), codes::REQUEST_CANCELLED),
+        ] {
+            assert_eq!(error.into_response_error().code, code);
+        }
     }
 }

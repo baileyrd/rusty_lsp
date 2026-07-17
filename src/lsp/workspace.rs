@@ -75,20 +75,30 @@ impl TextEdit {
 }
 
 /// A set of edits across one or more documents, sent to
-/// `workspace/applyEdit`.
+/// `workspace/applyEdit` (and returned from `rename`, `willRenameFiles`,
+/// code-action edits, …).
 ///
-/// Only the `changes` form (a flat per-document edit list) is modelled as a
-/// named field; the richer `documentChanges` form (versioned edits, file
-/// creates/renames/deletes) is preserved verbatim in
-/// [`extra`](Self::extra) rather than dropped, mirroring
-/// [`crate::lsp::ServerCapabilities::extra`].
+/// Two forms exist: the simple [`changes`](Self::changes) map, and the
+/// richer [`document_changes`](Self::document_changes) list, which supports
+/// versioned edits, file creates/renames/deletes, and change annotations.
+/// Servers should prefer `document_changes` when the client advertises
+/// `workspace.workspaceEdit.documentChanges`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceEdit {
-    /// Per-document lists of edits to apply.
+    /// Per-document lists of edits to apply (the simple form).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<HashMap<Uri, Vec<TextEdit>>>,
-    /// Any additional fields not modelled above (e.g. `documentChanges`,
-    /// `changeAnnotations`).
+    /// Ordered document edits and file operations (the rich form). Applied
+    /// in order; a versioned edit lets the client refuse edits computed
+    /// against stale text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_changes: Option<Vec<DocumentChange>>,
+    /// Descriptions for the annotation ids referenced by annotated edits
+    /// and file operations, keyed by id (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_annotations: Option<HashMap<String, ChangeAnnotation>>,
+    /// Any additional fields not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -100,9 +110,196 @@ impl WorkspaceEdit {
         changes.insert(uri, edits);
         WorkspaceEdit {
             changes: Some(changes),
-            extra: Map::new(),
+            ..Default::default()
         }
     }
+
+    /// Build a `documentChanges`-form edit from an ordered list of document
+    /// edits and file operations.
+    pub fn with_document_changes(document_changes: Vec<DocumentChange>) -> Self {
+        WorkspaceEdit {
+            document_changes: Some(document_changes),
+            ..Default::default()
+        }
+    }
+}
+
+/// One entry of [`WorkspaceEdit::document_changes`]: a textual edit to an
+/// (optionally versioned) document, or a file create/rename/delete.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DocumentChange {
+    /// Textual edits to one document.
+    Edit(TextDocumentEdit),
+    /// A file create/rename/delete operation.
+    Operation(ResourceOperation),
+}
+
+impl From<TextDocumentEdit> for DocumentChange {
+    fn from(edit: TextDocumentEdit) -> Self {
+        DocumentChange::Edit(edit)
+    }
+}
+
+impl From<ResourceOperation> for DocumentChange {
+    fn from(op: ResourceOperation) -> Self {
+        DocumentChange::Operation(op)
+    }
+}
+
+/// Textual edits scoped to one document, optionally pinned to the version
+/// they were computed against.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentEdit {
+    /// The document (and expected version) the edits apply to.
+    pub text_document: OptionalVersionedTextDocumentIdentifier,
+    /// The edits, possibly annotated.
+    pub edits: Vec<AnnotatedTextEdit>,
+}
+
+impl TextDocumentEdit {
+    /// Build a document edit. Pass the version the edits were computed
+    /// against (letting the client refuse stale edits), or `None` to apply
+    /// regardless.
+    pub fn new(uri: Uri, version: Option<i32>, edits: Vec<TextEdit>) -> Self {
+        TextDocumentEdit {
+            text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
+            edits: edits.into_iter().map(AnnotatedTextEdit::from).collect(),
+        }
+    }
+}
+
+/// Identifies a document plus the version an edit expects it to be at;
+/// `version: None` (JSON `null`) means "apply regardless of version".
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct OptionalVersionedTextDocumentIdentifier {
+    /// The document URI.
+    pub uri: Uri,
+    /// The expected version, or `None` to skip the check. Required on the
+    /// wire (as `null` when absent), per the spec.
+    pub version: Option<i32>,
+}
+
+/// A [`TextEdit`] optionally tagged with a change-annotation id (LSP 3.16).
+/// With no id it is wire-identical to a plain `TextEdit`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotatedTextEdit {
+    /// The range to replace.
+    pub range: Range,
+    /// The replacement text.
+    pub new_text: String,
+    /// The id of a [`ChangeAnnotation`] in
+    /// [`WorkspaceEdit::change_annotations`] describing this edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation_id: Option<String>,
+}
+
+impl From<TextEdit> for AnnotatedTextEdit {
+    fn from(edit: TextEdit) -> Self {
+        AnnotatedTextEdit {
+            range: edit.range,
+            new_text: edit.new_text,
+            annotation_id: None,
+        }
+    }
+}
+
+/// A file create/rename/delete inside [`WorkspaceEdit::document_changes`],
+/// discriminated on the wire by its `kind` field.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ResourceOperation {
+    /// Create a new file.
+    Create(CreateFile),
+    /// Rename a file.
+    Rename(RenameFile),
+    /// Delete a file.
+    Delete(DeleteFile),
+}
+
+/// Create a file as part of a [`WorkspaceEdit`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFile {
+    /// The file to create.
+    pub uri: Uri,
+    /// Behaviour when the file already exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<CreateFileOptions>,
+    /// The id of a [`ChangeAnnotation`] describing this operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation_id: Option<String>,
+}
+
+/// Options of a [`CreateFile`] operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFileOptions {
+    /// Overwrite an existing file. Wins over `ignore_if_exists`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
+    /// Do nothing if the file already exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_if_exists: Option<bool>,
+}
+
+/// Rename a file as part of a [`WorkspaceEdit`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameFile {
+    /// The file to rename.
+    pub old_uri: Uri,
+    /// The new location.
+    pub new_uri: Uri,
+    /// Behaviour when the target already exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<CreateFileOptions>,
+    /// The id of a [`ChangeAnnotation`] describing this operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation_id: Option<String>,
+}
+
+/// Delete a file as part of a [`WorkspaceEdit`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFile {
+    /// The file to delete.
+    pub uri: Uri,
+    /// Behaviour for folders and missing files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<DeleteFileOptions>,
+    /// The id of a [`ChangeAnnotation`] describing this operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation_id: Option<String>,
+}
+
+/// Options of a [`DeleteFile`] operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFileOptions {
+    /// Delete folder contents recursively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recursive: Option<bool>,
+    /// Do nothing if the file does not exist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_if_not_exists: Option<bool>,
+}
+
+/// A description of a group of changes within a [`WorkspaceEdit`]
+/// (LSP 3.16), shown by clients that let the user confirm edits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeAnnotation {
+    /// A human-readable label for the change group.
+    pub label: String,
+    /// Whether the client should ask the user to confirm before applying.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needs_confirmation: Option<bool>,
+    /// A longer description of the change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Parameters of the server-to-client `workspace/applyEdit` request.
@@ -182,19 +379,71 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn workspace_edit_preserves_document_changes_in_extra() {
+    fn workspace_edit_document_changes_are_typed() {
         let value = json!({
-            "documentChanges": [{"textDocument": {"uri": "file:///a", "version": 1}, "edits": []}],
+            "documentChanges": [
+                {"textDocument": {"uri": "file:///a", "version": 1}, "edits": [
+                    {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "newText": "x"},
+                ]},
+                {"kind": "create", "uri": "file:///new.rs"},
+                {"kind": "rename", "oldUri": "file:///a", "newUri": "file:///b"},
+                {"kind": "delete", "uri": "file:///gone.rs", "options": {"recursive": true}},
+            ],
         });
         let edit: WorkspaceEdit = serde_json::from_value(value.clone()).unwrap();
         assert!(edit.changes.is_none());
-        assert_eq!(
-            edit.extra.get("documentChanges"),
-            value.get("documentChanges")
-        );
+        let changes = edit.document_changes.as_ref().expect("typed");
+        assert!(matches!(&changes[0], DocumentChange::Edit(e)
+            if e.text_document.version == Some(1) && e.edits[0].new_text == "x"));
+        assert!(matches!(
+            &changes[1],
+            DocumentChange::Operation(ResourceOperation::Create(c)) if c.uri == "file:///new.rs"
+        ));
+        assert!(matches!(
+            &changes[2],
+            DocumentChange::Operation(ResourceOperation::Rename(r)) if r.new_uri == "file:///b"
+        ));
+        assert!(matches!(
+            &changes[3],
+            DocumentChange::Operation(ResourceOperation::Delete(d))
+                if d.options.and_then(|o| o.recursive) == Some(true)
+        ));
 
         let round_tripped = serde_json::to_value(&edit).unwrap();
         assert_eq!(round_tripped["documentChanges"], value["documentChanges"]);
+    }
+
+    #[test]
+    fn workspace_edit_with_document_changes_builder() {
+        let edit = WorkspaceEdit::with_document_changes(vec![
+            ResourceOperation::Create(CreateFile {
+                uri: "file:///new.rs".into(),
+                options: None,
+                annotation_id: None,
+            })
+            .into(),
+            TextDocumentEdit::new(
+                "file:///new.rs".into(),
+                None,
+                vec![TextEdit::new(
+                    Range::new(Position::new(0, 0), Position::new(0, 0)),
+                    "// hello\n",
+                )],
+            )
+            .into(),
+        ]);
+        let value = serde_json::to_value(&edit).unwrap();
+        assert_eq!(value["documentChanges"][0]["kind"], json!("create"));
+        // A versionless document edit still carries an explicit null version.
+        assert_eq!(
+            value["documentChanges"][1]["textDocument"]["version"],
+            json!(null)
+        );
+        assert!(
+            value["documentChanges"][1]["edits"][0]
+                .get("annotationId")
+                .is_none()
+        );
     }
 
     #[test]

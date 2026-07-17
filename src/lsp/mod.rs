@@ -48,25 +48,28 @@ pub use code_action::{
 };
 pub use code_lens::{CodeLens, CodeLensOptions, CodeLensParams};
 pub use diagnostics::{
-    Diagnostic, DiagnosticOptions, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    FullDocumentDiagnosticReport, PreviousResultId, PublishDiagnosticsParams,
-    UnchangedDocumentDiagnosticReport, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
-    WorkspaceDocumentDiagnosticReport, WorkspaceFullDocumentDiagnosticReport,
-    WorkspaceUnchangedDocumentDiagnosticReport,
+    CodeDescription, Diagnostic, DiagnosticOptions, DiagnosticRelatedInformation,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, FullDocumentDiagnosticReport,
+    PreviousResultId, PublishDiagnosticsParams, UnchangedDocumentDiagnosticReport,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
+    WorkspaceFullDocumentDiagnosticReport, WorkspaceUnchangedDocumentDiagnosticReport,
 };
 pub use document::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, TextDocumentContentChangeEvent, WillSaveTextDocumentParams,
 };
 pub use enums::{
-    CodeActionTriggerKind, CompletionItemKind, CompletionTriggerKind, DiagnosticSeverity,
-    FileChangeType, InlayHintKind, InlineCompletionTriggerKind, MarkupKind, MessageType,
-    NotebookCellKind, PositionEncodingKind, SignatureHelpTriggerKind, SymbolKind, SymbolTag,
-    TextDocumentSaveReason, TextDocumentSyncKind,
+    CodeActionTriggerKind, CompletionItemKind, CompletionItemTag, CompletionTriggerKind,
+    DiagnosticSeverity, DiagnosticTag, DocumentHighlightKind, FileChangeType, InlayHintKind,
+    InlineCompletionTriggerKind, InsertTextFormat, MarkupKind, MessageType, NotebookCellKind,
+    PositionEncodingKind, SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSaveReason,
+    TextDocumentSyncKind,
 };
 pub use features::{
-    CompletionContext, CompletionItem, CompletionList, CompletionParams, CompletionResponse,
-    DefinitionParams, GotoDefinitionResponse, Hover, HoverParams, MarkupContent, ReferenceContext,
+    CompletionContext, CompletionEditRange, CompletionItem, CompletionItemDefaults,
+    CompletionItemLabelDetails, CompletionList, CompletionParams, CompletionResponse,
+    CompletionTextEdit, DefinitionParams, DocumentHighlight, DocumentHighlightParams,
+    GotoDefinitionResponse, Hover, HoverParams, InsertReplaceEdit, MarkupContent, ReferenceContext,
     ReferenceParams,
 };
 pub use file_operations::{
@@ -123,7 +126,10 @@ pub use ranges::{
     FoldingRange, FoldingRangeKind, FoldingRangeParams, LinkedEditingRangeParams,
     LinkedEditingRanges, SelectionRange, SelectionRangeParams, folding_range_kind,
 };
-pub use registration::{Registration, RegistrationParams, Unregistration, UnregistrationParams};
+pub use registration::{
+    DocumentFilter, DocumentSelector, Registration, RegistrationParams,
+    TextDocumentRegistrationOptions, Unregistration, UnregistrationParams,
+};
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
 pub use semantic_tokens::{
     SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensDeltaResult,
@@ -145,8 +151,10 @@ pub use window::{
     ShowMessageRequestParams,
 };
 pub use workspace::{
-    ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ConfigurationItem, ConfigurationParams,
-    DidChangeConfigurationParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
-    ExecuteCommandOptions, ExecuteCommandParams, FileEvent, TextEdit, WorkspaceEdit,
-    WorkspaceFolder, WorkspaceFoldersChangeEvent,
+    AnnotatedTextEdit, ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, ChangeAnnotation,
+    ConfigurationItem, ConfigurationParams, CreateFile, CreateFileOptions, DeleteFile,
+    DeleteFileOptions, DidChangeConfigurationParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DocumentChange, ExecuteCommandOptions, ExecuteCommandParams,
+    FileEvent, OptionalVersionedTextDocumentIdentifier, RenameFile, ResourceOperation,
+    TextDocumentEdit, TextEdit, WorkspaceEdit, WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };

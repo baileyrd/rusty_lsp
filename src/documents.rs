@@ -14,11 +14,12 @@
 //! via [`crate::lsp::ServerCapabilities::position_encoding`].
 
 use crate::lsp::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
     PositionEncodingKind, Uri,
 };
-use crate::text::position_to_offset_with;
+use crate::text::{LineIndex, position_to_offset_with};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
 
 /// A single open document's current text and metadata.
@@ -40,8 +41,31 @@ pub struct Document {
 /// methods through `&self`.
 #[derive(Debug)]
 pub struct Documents {
-    inner: RwLock<HashMap<Uri, Document>>,
+    inner: RwLock<HashMap<Uri, Entry>>,
     encoding: PositionEncodingKind,
+}
+
+/// A stored document plus its lazily built, edit-invalidated [`LineIndex`].
+#[derive(Debug)]
+struct Entry {
+    document: Document,
+    index: OnceLock<LineIndex>,
+}
+
+impl Entry {
+    fn new(document: Document) -> Self {
+        Entry {
+            document,
+            index: OnceLock::new(),
+        }
+    }
+
+    /// The line index for the current text, built on first use after each
+    /// edit.
+    fn index(&self) -> &LineIndex {
+        self.index
+            .get_or_init(|| LineIndex::new(&self.document.text))
+    }
 }
 
 impl Default for Documents {
@@ -78,14 +102,18 @@ impl Documents {
     /// letting a backend detect a client re-opening without closing.
     pub async fn did_open(&self, params: &DidOpenTextDocumentParams) -> Option<Document> {
         let item = &params.text_document;
-        self.inner.write().await.insert(
-            item.uri.clone(),
-            Document {
-                language_id: item.language_id.clone(),
-                version: item.version,
-                text: item.text.clone(),
-            },
-        )
+        self.inner
+            .write()
+            .await
+            .insert(
+                item.uri.clone(),
+                Entry::new(Document {
+                    language_id: item.language_id.clone(),
+                    version: item.version,
+                    text: item.text.clone(),
+                }),
+            )
+            .map(|entry| entry.document)
     }
 
     /// Apply a document change (`textDocument/didChange`), patching in the
@@ -99,12 +127,13 @@ impl Documents {
     /// replayed or reordered edits.
     pub async fn did_change(&self, params: &DidChangeTextDocumentParams) -> bool {
         let mut documents = self.inner.write().await;
-        let Some(document) = documents.get_mut(&params.text_document.uri) else {
+        let Some(entry) = documents.get_mut(&params.text_document.uri) else {
             return false;
         };
-        if params.text_document.version < document.version {
+        if params.text_document.version < entry.document.version {
             return false;
         }
+        let document = &mut entry.document;
         for change in &params.content_changes {
             match change.range {
                 Some(range) => {
@@ -116,12 +145,18 @@ impl Documents {
             }
         }
         document.version = params.text_document.version;
+        // The text changed; the cached line index no longer matches it.
+        entry.index = OnceLock::new();
         true
     }
 
     /// Forget a closed document (`textDocument/didClose`), returning it.
     pub async fn did_close(&self, params: &DidCloseTextDocumentParams) -> Option<Document> {
-        self.inner.write().await.remove(&params.text_document.uri)
+        self.inner
+            .write()
+            .await
+            .remove(&params.text_document.uri)
+            .map(|entry| entry.document)
     }
 
     /// Get a clone of a document's current state, if it's open.
@@ -130,7 +165,11 @@ impl Documents {
     /// hover over a large file), prefer [`with`](Self::with), which borrows
     /// instead.
     pub async fn get(&self, uri: impl AsRef<str>) -> Option<Document> {
-        self.inner.read().await.get(uri.as_ref()).cloned()
+        self.inner
+            .read()
+            .await
+            .get(uri.as_ref())
+            .map(|entry| entry.document.clone())
     }
 
     /// Get a clone of a document's current text, if it's open.
@@ -142,7 +181,7 @@ impl Documents {
             .read()
             .await
             .get(uri.as_ref())
-            .map(|d| d.text.clone())
+            .map(|entry| entry.document.text.clone())
     }
 
     /// Run `f` against a document's current state without cloning it,
@@ -157,7 +196,47 @@ impl Documents {
     ///     .await;
     /// ```
     pub async fn with<T>(&self, uri: impl AsRef<str>, f: impl FnOnce(&Document) -> T) -> Option<T> {
-        self.inner.read().await.get(uri.as_ref()).map(f)
+        self.inner
+            .read()
+            .await
+            .get(uri.as_ref())
+            .map(|entry| f(&entry.document))
+    }
+
+    /// Like [`with`](Self::with), also handing `f` the document's cached
+    /// [`LineIndex`] (built lazily and invalidated on every edit), for
+    /// batches of position math over one snapshot.
+    pub async fn with_index<T>(
+        &self,
+        uri: impl AsRef<str>,
+        f: impl FnOnce(&Document, &LineIndex) -> T,
+    ) -> Option<T> {
+        self.inner
+            .read()
+            .await
+            .get(uri.as_ref())
+            .map(|entry| f(&entry.document, entry.index()))
+    }
+
+    /// Convert a request [`Position`] in a stored document to a byte offset,
+    /// using the store's negotiated encoding and the document's cached line
+    /// index. Returns `None` if the document isn't open; out-of-range
+    /// positions clamp.
+    pub async fn offset_at(&self, uri: impl AsRef<str>, position: Position) -> Option<usize> {
+        self.with_index(uri, |doc, index| {
+            index.position_to_offset(&doc.text, position, self.encoding)
+        })
+        .await
+    }
+
+    /// Convert a byte offset in a stored document to a [`Position`], using
+    /// the store's negotiated encoding and the document's cached line index.
+    /// Returns `None` if the document isn't open; out-of-range offsets clamp.
+    pub async fn position_at(&self, uri: impl AsRef<str>, offset: usize) -> Option<Position> {
+        self.with_index(uri, |doc, index| {
+            index.offset_to_position(&doc.text, offset, self.encoding)
+        })
+        .await
     }
 }
 
@@ -353,6 +432,69 @@ mod tests {
             })
             .await;
         assert_eq!(documents.text("file:///a").await.as_deref(), Some("é😀y"));
+    }
+
+    #[tokio::test]
+    async fn offset_and_position_helpers_use_the_negotiated_encoding() {
+        let documents = Documents::new(); // UTF-16
+        documents.did_open(&open("file:///a", "é😀x\nsecond")).await;
+
+        // Column 3 on line 0 (UTF-16: é=1, 😀=2) is the byte offset of "x".
+        let offset = documents
+            .offset_at("file:///a", Position::new(0, 3))
+            .await
+            .expect("open");
+        assert_eq!(offset, 6);
+        assert_eq!(
+            documents.position_at("file:///a", offset).await,
+            Some(Position::new(0, 3))
+        );
+        // Second line resolves through the cached index too.
+        assert_eq!(
+            documents.offset_at("file:///a", Position::new(1, 0)).await,
+            Some(8)
+        );
+        assert!(
+            documents
+                .offset_at("file:///missing", Position::new(0, 0))
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn cached_line_index_is_invalidated_by_edits() {
+        let documents = Documents::new();
+        documents.did_open(&open("file:///a", "one\ntwo")).await;
+        // Prime the cache.
+        assert_eq!(
+            documents.offset_at("file:///a", Position::new(1, 0)).await,
+            Some(4)
+        );
+
+        // Grow line 0; line 1 must shift.
+        documents
+            .did_change(&DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: "file:///a".into(),
+                    version: 2,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: Some(Range::new(Position::new(0, 0), Position::new(0, 0))),
+                    text: "zero ".to_owned(),
+                }],
+            })
+            .await;
+        assert_eq!(
+            documents.offset_at("file:///a", Position::new(1, 0)).await,
+            Some(9)
+        );
+
+        // with_index hands out the same snapshot-consistent pair.
+        let line_count = documents
+            .with_index("file:///a", |_doc, index| index.line_count())
+            .await;
+        assert_eq!(line_count, Some(2));
     }
 
     #[tokio::test]

@@ -17,7 +17,8 @@ use rusty_lsp::lsp::{
     DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams, DidOpenNotebookDocumentParams,
     DidOpenTextDocumentParams, DidSaveNotebookDocumentParams, DocumentColorParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, DocumentLink,
     DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams,
     FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover,
@@ -352,6 +353,15 @@ impl LanguageServer for TestBackend {
             uri,
             range: zero_range(),
         }]))
+    }
+
+    async fn document_highlight(
+        &self,
+        _params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        Ok(Some(vec![
+            DocumentHighlight::new(zero_range()).with_kind(DocumentHighlightKind::Write),
+        ]))
     }
 
     async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
@@ -2560,4 +2570,36 @@ async fn outbound_queue_limit_rejects_client_traffic_but_not_responses() {
     // The response itself arrived (not subject to the cap), and it reports
     // that the notification was rejected.
     assert_eq!(response.result.expect("result"), json!(false));
+}
+
+#[tokio::test]
+async fn document_highlight_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/documentHighlight",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let highlights = response.result.expect("result");
+    assert_eq!(highlights[0]["kind"], json!(3)); // Write
+    assert_eq!(highlights[0]["range"]["start"]["line"], json!(0));
+}
+
+#[tokio::test]
+async fn exit_without_shutdown_is_an_error() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // Skip the shutdown request entirely; per spec the process should exit
+    // with code 1, which `serve` signals by returning an error.
+    harness.notify("exit", Value::Null).await;
+    let outcome = tokio::time::timeout(Duration::from_secs(5), harness.serve)
+        .await
+        .expect("server should stop after exit")
+        .expect("server task did not panic");
+    assert!(outcome.is_err(), "exit without shutdown must be an error");
 }

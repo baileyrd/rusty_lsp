@@ -131,3 +131,22 @@ async fn test_client_error_responses_become_errors() {
 
     client.shutdown_and_exit().await.expect("clean teardown");
 }
+
+#[tokio::test]
+async fn test_client_receives_fail_instead_of_hanging() {
+    let mut client = TestClient::spawn(|client| Backend { client })
+        .with_timeout(std::time::Duration::from_millis(200));
+    client
+        .initialize(InitializeParams::default())
+        .await
+        .expect("initialize");
+
+    // Nothing will ever send this notification; the receive must fail with
+    // a descriptive error rather than hang the test.
+    let err = client
+        .recv_notification("never/sent")
+        .await
+        .expect_err("times out");
+    let text = err.to_string();
+    assert!(text.contains("no message"), "was: {text}");
+}
