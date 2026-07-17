@@ -117,6 +117,54 @@ mod tests {
     }
 
     #[test]
+    fn position_encoding_negotiation_prefers_the_server_order() {
+        let caps: ClientCapabilities = serde_json::from_value(json!({
+            "general": {"positionEncodings": ["utf-8", "utf-16", "not-a-real-one"]},
+        }))
+        .unwrap();
+        assert_eq!(
+            caps.position_encodings(),
+            vec![PositionEncodingKind::Utf8, PositionEncodingKind::Utf16]
+        );
+        assert_eq!(
+            caps.negotiate_position_encoding(&[PositionEncodingKind::Utf8]),
+            PositionEncodingKind::Utf8
+        );
+        assert_eq!(
+            caps.negotiate_position_encoding(&[PositionEncodingKind::Utf32]),
+            PositionEncodingKind::Utf16 // unsupported preference falls back
+        );
+        // A client that declared nothing gets the mandatory default.
+        let empty = ClientCapabilities::default();
+        assert!(empty.position_encodings().is_empty());
+        assert_eq!(
+            empty.negotiate_position_encoding(&[PositionEncodingKind::Utf8]),
+            PositionEncodingKind::Utf16
+        );
+    }
+
+    #[test]
+    fn completion_options_serialize_the_317_fields() {
+        let options = CompletionOptions {
+            trigger_characters: vec![".".to_owned()],
+            all_commit_characters: Some(vec![";".to_owned()]),
+            resolve_provider: Some(true),
+            completion_item: Some(CompletionOptionsCompletionItem {
+                label_details_support: Some(true),
+            }),
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({
+                "triggerCharacters": ["."],
+                "allCommitCharacters": [";"],
+                "resolveProvider": true,
+                "completionItem": {"labelDetailsSupport": true},
+            })
+        );
+    }
+
+    #[test]
     fn client_capabilities_get_and_supports_walk_dotted_paths() {
         let caps: ClientCapabilities = serde_json::from_value(json!({
             "textDocument": {
@@ -175,6 +223,45 @@ impl ClientCapabilities {
             value = value.as_object()?.get(segment)?;
         }
         Some(value)
+    }
+
+    /// The position encodings the client supports
+    /// (`general.positionEncodings`, LSP 3.17), in the client's preference
+    /// order; unknown encoding strings are skipped. Empty means the client
+    /// declared none, i.e. only UTF-16 may be assumed.
+    pub fn position_encodings(&self) -> Vec<PositionEncodingKind> {
+        self.get("general.positionEncodings")
+            .and_then(Value::as_array)
+            .map(|encodings| {
+                encodings
+                    .iter()
+                    .filter_map(|value| serde_json::from_value(value.clone()).ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Pick the position encoding to advertise in
+    /// [`ServerCapabilities::position_encoding`]: the first entry of
+    /// `preference` the client supports, else UTF-16 (which every client
+    /// must support and pre-3.17 clients implicitly use). Pair the result
+    /// with [`crate::Documents::with_encoding`]:
+    ///
+    /// ```rust,ignore
+    /// let encoding = params.capabilities.negotiate_position_encoding(
+    ///     &[PositionEncodingKind::Utf8],
+    /// );
+    /// ```
+    pub fn negotiate_position_encoding(
+        &self,
+        preference: &[PositionEncodingKind],
+    ) -> PositionEncodingKind {
+        let supported = self.position_encodings();
+        preference
+            .iter()
+            .copied()
+            .find(|kind| supported.contains(kind))
+            .unwrap_or(PositionEncodingKind::Utf16)
     }
 
     /// Whether `path` (see [`get`](Self::get)) resolves to a "yes" — either
@@ -361,10 +448,28 @@ pub struct CompletionOptions {
     /// Characters that trigger completion automatically.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trigger_characters: Vec<String>,
+    /// Characters that commit the selected item in every context
+    /// (LSP 3.2), overridable per item via `CompletionItem`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_commit_characters: Option<Vec<String>>,
     /// Whether the server resolves additional information for a selected item
     /// via `completionItem/resolve`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolve_provider: Option<bool>,
+    /// Server capabilities specific to completion items (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_item: Option<CompletionOptionsCompletionItem>,
+}
+
+/// The `completionItem` sub-object of [`CompletionOptions`] (LSP 3.17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionOptionsCompletionItem {
+    /// Whether the server emits
+    /// [`label_details`](crate::lsp::CompletionItem::label_details) on its
+    /// completion items.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_details_support: Option<bool>,
 }
 
 /// Options describing the server's `textDocument/signatureHelp` support.

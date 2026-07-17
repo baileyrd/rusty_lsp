@@ -68,6 +68,21 @@ impl Entry {
     }
 }
 
+/// Look up `uri` in `map`, falling back to its normalized spelling when
+/// the raw string misses — so a caller passing e.g. `"FILE:///a"` still
+/// finds the document stored under the normalized [`Uri`] key. The
+/// fallback allocates only when normalization would actually change the
+/// string.
+fn lookup<'a>(map: &'a HashMap<Uri, Entry>, uri: &str) -> Option<&'a Entry> {
+    if let Some(entry) = map.get(uri) {
+        return Some(entry);
+    }
+    let normalized = Uri::new(uri);
+    (normalized != uri)
+        .then(|| map.get(normalized.as_str()))
+        .flatten()
+}
+
 impl Default for Documents {
     fn default() -> Self {
         Documents::new()
@@ -165,11 +180,7 @@ impl Documents {
     /// hover over a large file), prefer [`with`](Self::with), which borrows
     /// instead.
     pub async fn get(&self, uri: impl AsRef<str>) -> Option<Document> {
-        self.inner
-            .read()
-            .await
-            .get(uri.as_ref())
-            .map(|entry| entry.document.clone())
+        lookup(&*self.inner.read().await, uri.as_ref()).map(|entry| entry.document.clone())
     }
 
     /// Get a clone of a document's current text, if it's open.
@@ -177,11 +188,7 @@ impl Documents {
     /// Like [`get`](Self::get), this clones; prefer [`with`](Self::with) on
     /// hot paths.
     pub async fn text(&self, uri: impl AsRef<str>) -> Option<String> {
-        self.inner
-            .read()
-            .await
-            .get(uri.as_ref())
-            .map(|entry| entry.document.text.clone())
+        lookup(&*self.inner.read().await, uri.as_ref()).map(|entry| entry.document.text.clone())
     }
 
     /// Run `f` against a document's current state without cloning it,
@@ -196,11 +203,7 @@ impl Documents {
     ///     .await;
     /// ```
     pub async fn with<T>(&self, uri: impl AsRef<str>, f: impl FnOnce(&Document) -> T) -> Option<T> {
-        self.inner
-            .read()
-            .await
-            .get(uri.as_ref())
-            .map(|entry| f(&entry.document))
+        lookup(&*self.inner.read().await, uri.as_ref()).map(|entry| f(&entry.document))
     }
 
     /// The URIs of every open document, in no particular order.
@@ -236,10 +239,7 @@ impl Documents {
         uri: impl AsRef<str>,
         f: impl FnOnce(&Document, &LineIndex) -> T,
     ) -> Option<T> {
-        self.inner
-            .read()
-            .await
-            .get(uri.as_ref())
+        lookup(&*self.inner.read().await, uri.as_ref())
             .map(|entry| f(&entry.document, entry.index()))
     }
 
@@ -273,7 +273,7 @@ mod tests {
         VersionedTextDocumentIdentifier,
     };
 
-    fn open(uri: &str, text: &str) -> DidOpenTextDocumentParams {
+    pub fn open(uri: &str, text: &str) -> DidOpenTextDocumentParams {
         DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri: uri.into(),
@@ -539,5 +539,26 @@ mod tests {
             .await;
 
         assert!(documents.get("file:///never-opened").await.is_none());
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::tests::open;
+    use super::*;
+
+    #[tokio::test]
+    async fn raw_string_lookups_fall_back_to_the_normalized_spelling() {
+        let documents = Documents::new();
+        documents.did_open(&open("file:///a", "hello")).await;
+
+        // A raw string that only matches after normalization still hits.
+        assert!(documents.get("FILE:///a").await.is_some());
+        assert!(documents.text("file:///a").await.is_some());
+        assert_eq!(
+            documents.with("FILE:///a", |doc| doc.text.len()).await,
+            Some(5)
+        );
+        assert!(documents.get("file:///other").await.is_none());
     }
 }

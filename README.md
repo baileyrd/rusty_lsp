@@ -46,7 +46,7 @@ tagged release:
 
 ```toml
 [dependencies]
-rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.4.0" }
+rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.5.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -208,6 +208,13 @@ into a binary search over precomputed line starts, and
 (any order, overlap-checked) — handy for asserting formatting/rename results
 in tests.
 
+Dynamic registration is fully typed — document selectors
+(`Registration::for_documents`) and file watchers
+(`Registration::for_watched_files` with `FileSystemWatcher`/`watch_kind`)
+— and position-encoding negotiation is one call:
+`capabilities.negotiate_position_encoding(&[PositionEncodingKind::Utf8])`,
+pairing with `Documents::with_encoding`.
+
 Diagnostics carry the full 3.16 surface (`tags`, `relatedInformation`,
 `codeDescription`, `data` for the diagnostic→quick-fix round trip), and
 `WorkspaceEdit` models `documentChanges` — versioned edits, file
@@ -266,7 +273,7 @@ async fn handle_request(&self, method: &str, params: Option<Value>) -> Result<Va
 
 | Feature | Adds |
 |---|---|
-| `tcp` | `Server::from_tcp` for serving an accepted `tokio` TCP connection |
+| `tcp` | `Server::from_tcp` (single connection) and `server::serve_tcp` (accept loop, one backend per connection) |
 | `tracing` | Wire-level `tracing` instrumentation of the message loop |
 
 ## Example server

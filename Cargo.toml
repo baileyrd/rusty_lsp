@@ -1,6 +1,6 @@
 [package]
 name = "rusty_lsp"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A small, reusable async Language Server Protocol framework. Own the protocol plumbing; implement one trait for your language."
@@ -9,6 +9,9 @@ readme = "README.md"
 repository = "https://github.com/baileyrd/rusty_lsp"
 keywords = ["lsp", "language-server", "async", "tokio", "jsonrpc"]
 categories = ["development-tools", "asynchronous"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 # `Server::from_tcp`: serve an accepted tokio TCP connection.

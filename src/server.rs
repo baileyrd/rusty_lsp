@@ -23,18 +23,19 @@ use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CodeAction, CodeActionParams, CodeLens, CodeLensParams, ColorPresentationParams,
-    CompletionItem, CompletionParams, CreateFilesParams, DefinitionParams, DeleteFilesParams,
-    DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
-    DidCloseTextDocumentParams, DidOpenNotebookDocumentParams, DidOpenTextDocumentParams,
-    DidSaveNotebookDocumentParams, DidSaveTextDocumentParams, DocumentColorParams,
-    DocumentDiagnosticParams, DocumentFormattingParams, DocumentHighlightParams, DocumentLink,
-    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
-    DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams,
-    InlayHint, InlayHintParams, InlineCompletionParams, InlineValueParams,
-    LinkedEditingRangeParams, MessageType, MonikerParams, ReferenceParams, RenameFilesParams,
-    RenameParams, SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, TextDocumentPositionParams,
+    CompletionItem, CompletionParams, CreateFilesParams, DeclarationParams, DefinitionParams,
+    DeleteFilesParams, DidChangeConfigurationParams, DidChangeNotebookDocumentParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
+    DidCloseNotebookDocumentParams, DidCloseTextDocumentParams, DidOpenNotebookDocumentParams,
+    DidOpenTextDocumentParams, DidSaveNotebookDocumentParams, DidSaveTextDocumentParams,
+    DocumentColorParams, DocumentDiagnosticParams, DocumentFormattingParams,
+    DocumentHighlightParams, DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, DocumentSymbolParams, ExecuteCommandParams, FoldingRangeParams,
+    HoverParams, ImplementationParams, InitializeParams, InlayHint, InlayHintParams,
+    InlineCompletionParams, InlineValueParams, LinkedEditingRangeParams, MessageType,
+    MonikerParams, ReferenceParams, RenameFilesParams, RenameParams, SelectionRangeParams,
+    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
+    SignatureHelpParams, TextDocumentPositionParams, TypeDefinitionParams,
     TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
     WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
     WorkspaceSymbol, WorkspaceSymbolParams,
@@ -83,7 +84,12 @@ pub struct Server<R, W> {
     writer: W,
     max_concurrent_requests: Option<usize>,
     outbound_queue_limit: Option<usize>,
+    teardown_grace: std::time::Duration,
 }
+
+/// How long teardown waits for queued notification handlers before
+/// aborting them (see [`Server::with_teardown_grace`]).
+const DEFAULT_TEARDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl Server<tokio::io::Stdin, tokio::io::Stdout> {
     /// Build a server over the process's standard input and output.
@@ -106,6 +112,43 @@ impl Server<tokio::net::tcp::OwnedReadHalf, tokio::net::tcp::OwnedWriteHalf> {
     }
 }
 
+/// Serve LSP connections accepted from `listener`, each on its own task
+/// with its own backend built by `factory` (requires the `tcp` feature) —
+/// the socket-mode counterpart of [`Server::stdio`]:
+///
+/// ```rust,no_run
+/// # use rusty_lsp::error::Result;
+/// # struct Backend { client: rusty_lsp::Client }
+/// # impl rusty_lsp::LanguageServer for Backend {
+/// #     async fn initialize(&self, _p: rusty_lsp::lsp::InitializeParams)
+/// #         -> Result<rusty_lsp::lsp::InitializeResult> { unimplemented!() }
+/// # }
+/// # async fn run() -> Result<()> {
+/// let listener = tokio::net::TcpListener::bind("127.0.0.1:9257").await?;
+/// rusty_lsp::server::serve_tcp(listener, |client| Backend { client }).await
+/// # }
+/// ```
+///
+/// Runs until `accept` fails; a connection whose serve loop errors is
+/// logged nowhere and simply ends (each connection is independent).
+#[cfg(feature = "tcp")]
+pub async fn serve_tcp<B, F>(listener: tokio::net::TcpListener, factory: F) -> Result<()>
+where
+    B: LanguageServer,
+    F: Fn(Client) -> B + Send + Sync + 'static,
+{
+    let factory = Arc::new(factory);
+    loop {
+        let (stream, _peer) = listener.accept().await?;
+        let factory = Arc::clone(&factory);
+        tokio::spawn(async move {
+            let _ = Server::from_tcp(stream)
+                .serve(move |client| factory(client))
+                .await;
+        });
+    }
+}
+
 impl<R, W> Server<R, W>
 where
     R: AsyncRead + Unpin,
@@ -118,7 +161,20 @@ where
             writer,
             max_concurrent_requests: None,
             outbound_queue_limit: None,
+            teardown_grace: DEFAULT_TEARDOWN_GRACE,
         }
+    }
+
+    /// How long teardown waits for still-queued notification handlers to
+    /// finish before aborting them (default: 2s). After a proper `shutdown`
+    /// request the queue is already drained (the watermark wait guarantees
+    /// it), so the grace only matters on abrupt endings — `exit` without
+    /// `shutdown`, or EOF — where the client is gone and a slow handler
+    /// should not keep the process alive indefinitely.
+    #[must_use]
+    pub fn with_teardown_grace(mut self, grace: std::time::Duration) -> Self {
+        self.teardown_grace = grace;
+        self
     }
 
     /// Cap how many request handlers may execute concurrently (default:
@@ -163,6 +219,7 @@ where
             mut writer,
             max_concurrent_requests,
             outbound_queue_limit,
+            teardown_grace,
         } = self;
 
         let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
@@ -182,7 +239,15 @@ where
             Ok::<(), Error>(())
         });
 
-        let result = run_loop(reader, client, outbound, request_permits, backend).await;
+        let result = run_loop(
+            reader,
+            client,
+            outbound,
+            request_permits,
+            teardown_grace,
+            backend,
+        )
+        .await;
 
         // `run_loop` has dropped its senders and aborted in-flight handlers on
         // return; await the writer so buffered output is flushed before exit.
@@ -202,6 +267,7 @@ async fn run_loop<R, B>(
     client: Client,
     out_tx: Outbound,
     request_permits: Option<Arc<Semaphore>>,
+    teardown_grace: std::time::Duration,
     backend: Arc<B>,
 ) -> Result<()>
 where
@@ -224,7 +290,7 @@ where
     let (notes_done_tx, notes_done) = watch::channel(0u64);
     let worker_backend = Arc::clone(&backend);
     let worker_client = client.clone();
-    let notification_worker = tokio::spawn(async move {
+    let mut notification_worker = tokio::spawn(async move {
         while let Some(note) = note_rx.recv().await {
             // Catch panics per notification: an unwinding handler must not
             // kill the worker, which would wedge every request waiting on
@@ -399,16 +465,24 @@ where
         }
     };
 
-    // Tear down: stop feeding the notification worker, abort any handlers
-    // still running so their captured senders and backend references drop,
-    // then let the worker drain its queue — notification effects (document
-    // updates, outbound messages) complete before `serve` returns.
+    // Tear down: stop feeding the notification worker and abort any request
+    // handlers still running so their captured senders and backend
+    // references drop. Give the worker a bounded grace to drain its queue —
+    // after a proper `shutdown` it is already empty, so the grace only
+    // bites on abrupt endings, where a slow queued handler must not keep
+    // the process alive indefinitely.
     drop(note_tx);
     for (_, entry) in lock(&in_flight).drain() {
         entry.token.cancel();
         entry.abort.abort();
     }
-    let _ = notification_worker.await;
+    if tokio::time::timeout(teardown_grace, &mut notification_worker)
+        .await
+        .is_err()
+    {
+        notification_worker.abort();
+        let _ = notification_worker.await;
+    }
 
     loop_result
 }
@@ -601,17 +675,17 @@ async fn dispatch_request<B: LanguageServer>(
         ),
         "textDocument/declaration" => to_json(
             &backend
-                .declaration(parse_params::<TextDocumentPositionParams>(params)?)
+                .declaration(parse_params::<DeclarationParams>(params)?)
                 .await?,
         ),
         "textDocument/typeDefinition" => to_json(
             &backend
-                .type_definition(parse_params::<TextDocumentPositionParams>(params)?)
+                .type_definition(parse_params::<TypeDefinitionParams>(params)?)
                 .await?,
         ),
         "textDocument/implementation" => to_json(
             &backend
-                .implementation(parse_params::<TextDocumentPositionParams>(params)?)
+                .implementation(parse_params::<ImplementationParams>(params)?)
                 .await?,
         ),
         "textDocument/references" => to_json(

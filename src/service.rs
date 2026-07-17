@@ -23,7 +23,7 @@ use crate::lsp::{
     CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams, ColorInformation,
     ColorPresentation, ColorPresentationParams, CompletionItem, CompletionParams,
-    CompletionResponse, CreateFilesParams, DefinitionParams, DeleteFilesParams,
+    CompletionResponse, CreateFilesParams, DeclarationParams, DefinitionParams, DeleteFilesParams,
     DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeTextDocumentParams,
     DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
     DidCloseTextDocumentParams, DidOpenNotebookDocumentParams, DidOpenTextDocumentParams,
@@ -32,13 +32,14 @@ use crate::lsp::{
     DocumentHighlight, DocumentHighlightParams, DocumentLink, DocumentLinkParams,
     DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandParams, FoldingRange, FoldingRangeParams,
-    FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
-    InitializeResult, InlayHint, InlayHintParams, InlineCompletionParams, InlineCompletionResponse,
-    InlineValue, InlineValueParams, LinkedEditingRangeParams, LinkedEditingRanges, Location,
-    Moniker, MonikerParams, PrepareRenameResponse, ReferenceParams, RenameFilesParams,
-    RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
-    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
-    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
+    FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams, ImplementationParams,
+    InitializeParams, InitializeResult, InlayHint, InlayHintParams, InlineCompletionParams,
+    InlineCompletionResponse, InlineValue, InlineValueParams, LinkedEditingRangeParams,
+    LinkedEditingRanges, Location, Moniker, MonikerParams, PrepareRenameResponse, ReferenceParams,
+    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
+    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelp, SignatureHelpParams,
+    TextDocumentPositionParams, TextEdit, TypeDefinitionParams, TypeHierarchyItem,
     TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
     WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
     WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
@@ -131,7 +132,7 @@ pub trait LanguageServer: Send + Sync + 'static {
     /// Handle `textDocument/declaration`.
     fn declaration(
         &self,
-        params: TextDocumentPositionParams,
+        params: DeclarationParams,
     ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
         let _ = params;
         async { Ok(None) }
@@ -140,7 +141,7 @@ pub trait LanguageServer: Send + Sync + 'static {
     /// Handle `textDocument/typeDefinition`.
     fn type_definition(
         &self,
-        params: TextDocumentPositionParams,
+        params: TypeDefinitionParams,
     ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
         let _ = params;
         async { Ok(None) }
@@ -149,7 +150,7 @@ pub trait LanguageServer: Send + Sync + 'static {
     /// Handle `textDocument/implementation`.
     fn implementation(
         &self,
-        params: TextDocumentPositionParams,
+        params: ImplementationParams,
     ) -> impl Future<Output = Result<Option<GotoDefinitionResponse>>> + Send {
         let _ = params;
         async { Ok(None) }

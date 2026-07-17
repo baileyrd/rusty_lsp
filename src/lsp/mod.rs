@@ -69,9 +69,10 @@ pub use enums::{
 pub use features::{
     CompletionContext, CompletionEditRange, CompletionItem, CompletionItemDefaults,
     CompletionItemLabelDetails, CompletionList, CompletionParams, CompletionResponse,
-    CompletionTextEdit, DefinitionParams, DocumentHighlight, DocumentHighlightParams,
-    GotoDefinitionResponse, Hover, HoverParams, InsertReplaceEdit, MarkupContent, ReferenceContext,
-    ReferenceParams,
+    CompletionTextEdit, DeclarationParams, DefinitionParams, DocumentHighlight,
+    DocumentHighlightParams, GotoDefinitionResponse, Hover, HoverParams, ImplementationParams,
+    InsertReplaceEdit, LocationLink, MarkupContent, ReferenceContext, ReferenceParams,
+    TypeDefinitionParams,
 };
 pub use file_operations::{
     CreateFilesParams, DeleteFilesParams, FileCreate, FileDelete, FileOperationFilter,
@@ -102,9 +103,10 @@ pub use inline_value::{
 };
 pub use lifecycle::{
     CallHierarchyProviderCapability, ClientCapabilities, ClientInfo, CodeActionProviderCapability,
-    CompletionOptions, InitializeParams, InitializeResult, RenameProviderCapability,
-    ServerCapabilities, ServerInfo, SignatureHelpOptions, TypeHierarchyProviderCapability,
-    WorkspaceServerCapabilities, WorkspaceSymbolProviderCapability,
+    CompletionOptions, CompletionOptionsCompletionItem, InitializeParams, InitializeResult,
+    RenameProviderCapability, ServerCapabilities, ServerInfo, SignatureHelpOptions,
+    TypeHierarchyProviderCapability, WorkspaceServerCapabilities,
+    WorkspaceSymbolProviderCapability,
 };
 pub use links::{
     Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,
@@ -128,8 +130,9 @@ pub use ranges::{
     LinkedEditingRanges, SelectionRange, SelectionRangeParams, folding_range_kind,
 };
 pub use registration::{
-    DocumentFilter, DocumentSelector, Registration, RegistrationParams,
-    TextDocumentRegistrationOptions, Unregistration, UnregistrationParams,
+    DidChangeWatchedFilesRegistrationOptions, DocumentFilter, DocumentSelector, FileSystemWatcher,
+    GlobPattern, Registration, RegistrationParams, RelativePattern,
+    TextDocumentRegistrationOptions, Unregistration, UnregistrationParams, watch_kind,
 };
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
 pub use semantic_tokens::{

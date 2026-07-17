@@ -4,6 +4,54 @@ All notable changes to `rusty_lsp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (0.x: minor bumps may break).
 
+## [0.5.0] — 2026-07-17
+
+### Added
+
+- Dedicated `DeclarationParams`/`TypeDefinitionParams`/`ImplementationParams`,
+  and the spec's `workDone`/`partialResult` mixins on `HoverParams`,
+  `CompletionParams`, `DefinitionParams`, `FoldingRangeParams`, and
+  `SelectionRangeParams` — client progress tokens are no longer silently
+  dropped, and `Client::begin_progress_for` works from those handlers.
+- `CompletionOptions::all_commit_characters` and
+  `completion_item.labelDetailsSupport` (via
+  `CompletionOptionsCompletionItem`).
+- Typed file-watcher registration: `FileSystemWatcher`, `GlobPattern`
+  (plain or `RelativePattern`), `watch_kind` flags,
+  `DidChangeWatchedFilesRegistrationOptions`, and
+  `Registration::for_watched_files`.
+- Position-encoding negotiation:
+  `ClientCapabilities::position_encodings()` and
+  `negotiate_position_encoding(preference)`.
+- `server::serve_tcp(listener, factory)` (behind the `tcp` feature): a
+  multi-connection accept loop, one backend per connection.
+- `Server::with_teardown_grace(Duration)` (default 2s): bounds how long
+  teardown waits for still-queued notification handlers on abrupt endings.
+- A release workflow that tags `vX.Y.Z` and publishes a GitHub Release
+  (with the matching changelog section) whenever the crate version changes
+  on `main`; a pinned-MSRV (1.85) CI job; `docs.rs` builds with all
+  features.
+- Deterministic property tests: `LineIndex` vs the free conversion
+  functions, `apply_edits` vs a naive reference, and transport round trips
+  at random payload sizes.
+
+### Fixed
+
+- `Documents` lookups by raw string now fall back to the normalized URI
+  spelling, so `get("FILE:///a")` finds a document stored under
+  `file:///a`.
+- `LocationLink` is now re-exported from `rusty_lsp::lsp` (it was only
+  reachable via `lsp::features` in 0.4.0).
+- Teardown no longer waits unboundedly for a slow queued notification
+  handler after `exit`/EOF.
+
+### Changed
+
+- **Breaking**: `declaration`/`type_definition`/`implementation` take
+  their dedicated param structs instead of `TextDocumentPositionParams`;
+  fields were added to several param structs (use `..Default::default()`
+  in literals).
+
 ## [0.4.0] — 2026-07-17
 
 ### Added

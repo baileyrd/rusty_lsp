@@ -13,28 +13,29 @@ use rusty_lsp::lsp::{
     ClientCapabilities, CodeAction, CodeActionOrCommand, CodeActionParams, CodeLens,
     CodeLensParams, Color, ColorInformation, ColorPresentation, ColorPresentationParams,
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    ConfigurationItem, CreateFilesParams, DeleteFilesParams, Diagnostic, DiagnosticSeverity,
-    DidChangeConfigurationParams, DidChangeNotebookDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams, DidOpenNotebookDocumentParams,
-    DidOpenTextDocumentParams, DidSaveNotebookDocumentParams, DocumentColorParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams,
-    DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, DocumentLink,
-    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams,
-    FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover,
-    HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams,
-    InlineCompletionItem, InlineCompletionParams, InlineCompletionResponse, InlineValue,
-    InlineValueParams, InlineValueText, LinkedEditingRangeParams, LinkedEditingRanges, Location,
-    MessageActionItem, MessageType, Moniker, MonikerKind, MonikerParams, NotebookCell,
-    NotebookCellKind, NotebookDocument, NotebookDocumentIdentifier, Position,
-    PrepareRenameResponse, Range, ReferenceParams, Registration, RenameFilesParams, RenameParams,
-    SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
-    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, ServerCapabilities,
-    ServerInfo, SetTraceParams, ShowDocumentParams, SignatureHelp, SignatureHelpParams,
-    SignatureInformation, SymbolInformation, SymbolKind, TextDocumentPositionParams,
-    TextDocumentSyncKind, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
-    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, UniquenessLevel, Unregistration,
-    Uri, VersionedNotebookDocumentIdentifier, WillSaveTextDocumentParams, WorkDoneProgressBegin,
+    ConfigurationItem, CreateFilesParams, DeclarationParams, DeleteFilesParams, Diagnostic,
+    DiagnosticSeverity, DidChangeConfigurationParams, DidChangeNotebookDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
+    DidOpenNotebookDocumentParams, DidOpenTextDocumentParams, DidSaveNotebookDocumentParams,
+    DocumentColorParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentFormattingParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams,
+    DocumentLink, DocumentLinkParams, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
+    ExecuteCommandParams, FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport,
+    GotoDefinitionResponse, Hover, HoverParams, ImplementationParams, InitializeParams,
+    InitializeResult, InlayHint, InlayHintParams, InlineCompletionItem, InlineCompletionParams,
+    InlineCompletionResponse, InlineValue, InlineValueParams, InlineValueText,
+    LinkedEditingRangeParams, LinkedEditingRanges, Location, MessageActionItem, MessageType,
+    Moniker, MonikerKind, MonikerParams, NotebookCell, NotebookCellKind, NotebookDocument,
+    NotebookDocumentIdentifier, Position, PrepareRenameResponse, Range, ReferenceParams,
+    Registration, RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams,
+    SemanticTokens, SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
+    SemanticTokensRangeParams, ServerCapabilities, ServerInfo, SetTraceParams, ShowDocumentParams,
+    SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, TypeDefinitionParams,
+    TypeHierarchyItem, TypeHierarchyPrepareParams, TypeHierarchySubtypesParams,
+    TypeHierarchySupertypesParams, UniquenessLevel, Unregistration, Uri,
+    VersionedNotebookDocumentIdentifier, WillSaveTextDocumentParams, WorkDoneProgressBegin,
     WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport,
     WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
     WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbol, WorkspaceSymbolParams,
@@ -337,21 +338,21 @@ impl LanguageServer for TestBackend {
 
     async fn declaration(
         &self,
-        _params: TextDocumentPositionParams,
+        _params: DeclarationParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         Ok(Some(marker_location("declaration").into()))
     }
 
     async fn type_definition(
         &self,
-        _params: TextDocumentPositionParams,
+        _params: TypeDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         Ok(Some(marker_location("type-definition").into()))
     }
 
     async fn implementation(
         &self,
-        _params: TextDocumentPositionParams,
+        _params: ImplementationParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         Ok(Some(marker_location("implementation").into()))
     }
@@ -2657,4 +2658,66 @@ async fn requests_still_observe_notifications_received_before_them() {
         response.result.expect("result")["contents"]["value"],
         json!("hello x3")
     );
+}
+
+#[tokio::test]
+async fn teardown_grace_bounds_a_slow_queued_notification() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // Queue the 5s notification handler, then sever the connection (EOF).
+    // Teardown must give up after the (2s) grace instead of draining fully.
+    harness.notify("test/slow_note", json!({})).await;
+    // Give the loop a beat to hand the notification to the worker.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    drop(harness.to_server);
+
+    let outcome = tokio::time::timeout(Duration::from_secs(4), harness.serve)
+        .await
+        .expect("teardown must be bounded by the grace period")
+        .expect("server task did not panic");
+    assert!(outcome.is_ok(), "EOF at a boundary is a clean stop");
+}
+
+#[cfg(feature = "tcp")]
+#[tokio::test]
+async fn serve_tcp_accepts_multiple_connections() {
+    use tokio::net::{TcpListener, TcpStream};
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(rusty_lsp::server::serve_tcp(listener, TestBackend::new));
+
+    for _ in 0..2 {
+        let stream = TcpStream::connect(addr).await.expect("connect");
+        let (read_half, mut write_half) = stream.into_split();
+        let mut reader = rusty_lsp::transport::buffered(read_half);
+
+        rusty_lsp::transport::write_message(
+            &mut write_half,
+            &Message::Request(Request {
+                id: RequestId::Number(1),
+                method: "initialize".to_owned(),
+                params: Some(json!({"capabilities": {}})),
+            }),
+        )
+        .await
+        .expect("send initialize");
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            rusty_lsp::transport::read_message(&mut reader),
+        )
+        .await
+        .expect("response should arrive")
+        .expect("read")
+        .expect("open stream");
+        let Message::Response(response) = response else {
+            panic!("expected a response");
+        };
+        assert_eq!(
+            response.result.expect("result")["serverInfo"]["name"],
+            json!("test-server")
+        );
+    }
 }

@@ -19,6 +19,8 @@ pub struct HoverParams {
     /// The document and position the hover was requested at.
     #[serde(flatten)]
     pub text_document_position: TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
 }
 
 /// The result of a hover request.
@@ -89,6 +91,10 @@ pub struct CompletionParams {
     /// The document and position completion was requested at.
     #[serde(flatten)]
     pub text_document_position: TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
     /// Additional information about the completion trigger.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<CompletionContext>,
@@ -366,6 +372,46 @@ pub struct DefinitionParams {
     /// The document and position definition was requested at.
     #[serde(flatten)]
     pub text_document_position: TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
+}
+
+/// Parameters of `textDocument/declaration`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarationParams {
+    /// The document and position declaration was requested at.
+    #[serde(flatten)]
+    pub text_document_position: TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
+}
+
+/// Parameters of `textDocument/typeDefinition`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeDefinitionParams {
+    /// The document and position type-definition was requested at.
+    #[serde(flatten)]
+    pub text_document_position: TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
+}
+
+/// Parameters of `textDocument/implementation`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImplementationParams {
+    /// The document and position implementation was requested at.
+    #[serde(flatten)]
+    pub text_document_position: TextDocumentPositionParams,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// The result of a goto-definition request (also used by `declaration`,
