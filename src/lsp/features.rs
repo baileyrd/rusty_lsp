@@ -368,7 +368,8 @@ pub struct DefinitionParams {
     pub text_document_position: TextDocumentPositionParams,
 }
 
-/// The result of a goto-definition request.
+/// The result of a goto-definition request (also used by `declaration`,
+/// `typeDefinition`, and `implementation`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GotoDefinitionResponse {
@@ -376,6 +377,12 @@ pub enum GotoDefinitionResponse {
     Scalar(Location),
     /// Several candidate locations.
     Array(Vec<Location>),
+    /// Rich links, preferred by clients advertising
+    /// `textDocument.definition.linkSupport` — the editor underlines the
+    /// exact origin token and lands on the symbol name instead of the
+    /// item's full range. Only return this form when the client declared
+    /// link support.
+    Links(Vec<LocationLink>),
 }
 
 impl From<Location> for GotoDefinitionResponse {
@@ -388,6 +395,32 @@ impl From<Vec<Location>> for GotoDefinitionResponse {
     fn from(locations: Vec<Location>) -> Self {
         GotoDefinitionResponse::Array(locations)
     }
+}
+
+impl From<Vec<LocationLink>> for GotoDefinitionResponse {
+    fn from(links: Vec<LocationLink>) -> Self {
+        GotoDefinitionResponse::Links(links)
+    }
+}
+
+/// A link between an origin range (the token the user invoked navigation
+/// on) and a target, richer than a bare [`Location`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationLink {
+    /// The span of the origin the link applies to (e.g. the identifier
+    /// under the cursor), underlined by the client; defaults to the word
+    /// range at the request position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_selection_range: Option<Range>,
+    /// The target document.
+    pub target_uri: super::base::Uri,
+    /// The target's full range (e.g. the entire function definition),
+    /// containing `target_selection_range`.
+    pub target_range: Range,
+    /// The precise range navigated to and highlighted (typically the
+    /// symbol's name).
+    pub target_selection_range: Range,
 }
 
 /// Parameters of `textDocument/references`.

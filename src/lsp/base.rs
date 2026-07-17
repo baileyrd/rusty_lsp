@@ -279,7 +279,10 @@ impl PartialEq<Uri> for &str {
 /// `character` is, per the base LSP spec, an offset in **UTF-16 code units**
 /// from the start of the line — not bytes and not Unicode scalar values.
 /// Servers must convert accordingly when indexing UTF-8 buffers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Positions order by line, then character, so `<`/`max`/sorting behave as
+/// document order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Position {
     /// Zero-based line number.
     pub line: u32,
@@ -410,5 +413,65 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert(Uri::new("file:///a"), 1);
         assert_eq!(map.get("file:///a"), Some(&1));
+    }
+}
+
+impl Range {
+    /// Whether `position` lies inside this half-open `[start, end)` range.
+    /// A position exactly at `end` is *not* contained (matching how the
+    /// spec treats range ends as exclusive).
+    pub fn contains(&self, position: Position) -> bool {
+        self.start <= position && position < self.end
+    }
+
+    /// Whether this range and `other` share at least one position, under
+    /// half-open semantics — two ranges that merely touch (`a.end ==
+    /// b.start`) do not overlap.
+    pub fn overlaps(&self, other: &Range) -> bool {
+        self.start < other.end && other.start < self.end
+    }
+
+    /// The shared sub-range of this range and `other`, or `None` when they
+    /// do not [`overlaps`](Self::overlaps).
+    pub fn intersection(&self, other: &Range) -> Option<Range> {
+        let start = self.start.max(other.start);
+        let end = self.end.min(other.end);
+        (start < end).then_some(Range { start, end })
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+
+    #[test]
+    fn positions_order_by_line_then_character() {
+        assert!(Position::new(0, 9) < Position::new(1, 0));
+        assert!(Position::new(2, 3) < Position::new(2, 4));
+        assert!(Position::new(2, 3) <= Position::new(2, 3));
+    }
+
+    #[test]
+    fn range_contains_is_half_open() {
+        let range = Range::new(Position::new(1, 2), Position::new(1, 5));
+        assert!(range.contains(Position::new(1, 2)));
+        assert!(range.contains(Position::new(1, 4)));
+        assert!(!range.contains(Position::new(1, 5))); // exclusive end
+        assert!(!range.contains(Position::new(0, 3)));
+    }
+
+    #[test]
+    fn range_overlap_and_intersection() {
+        let a = Range::new(Position::new(0, 0), Position::new(0, 5));
+        let b = Range::new(Position::new(0, 3), Position::new(0, 8));
+        let touching = Range::new(Position::new(0, 5), Position::new(0, 9));
+
+        assert!(a.overlaps(&b));
+        assert!(!a.overlaps(&touching)); // touching is not overlapping
+        assert_eq!(
+            a.intersection(&b),
+            Some(Range::new(Position::new(0, 3), Position::new(0, 5)))
+        );
+        assert_eq!(a.intersection(&touching), None);
     }
 }

@@ -13,8 +13,8 @@ use crate::lsp::{
     ProgressToken, PublishDiagnosticsParams, Registration, RegistrationParams, ShowDocumentParams,
     ShowDocumentResult, ShowMessageParams, ShowMessageRequestParams, Unregistration,
     UnregistrationParams, Uri, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
-    WorkspaceFolder,
+    WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressParams,
+    WorkDoneProgressReport, WorkspaceEdit, WorkspaceFolder,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -372,6 +372,41 @@ impl Client {
             .await
     }
 
+    /// Ask the client for a single configuration section and deserialize it
+    /// — the common `workspace/configuration` call without positional
+    /// `Vec<Value>` handling:
+    ///
+    /// ```rust,ignore
+    /// #[derive(serde::Deserialize, Default)]
+    /// #[serde(default)]
+    /// struct Settings { max_problems: u32 }
+    ///
+    /// let settings: Settings = client.config_section("myServer", None).await?;
+    /// ```
+    ///
+    /// A section the client has no value for comes back as JSON `null`; use
+    /// an `Option<T>` (or a `#[serde(default)]` struct that tolerates null?
+    /// — prefer `Option`) to distinguish "unset" from a deserialization
+    /// failure.
+    pub async fn config_section<T: DeserializeOwned>(
+        &self,
+        section: impl Into<String>,
+        scope_uri: Option<Uri>,
+    ) -> Result<T> {
+        let mut values = self
+            .configuration(vec![ConfigurationItem {
+                section: Some(section.into()),
+                scope_uri,
+            }])
+            .await?;
+        let value = if values.is_empty() {
+            Value::Null
+        } else {
+            values.swap_remove(0)
+        };
+        serde_json::from_value(value).map_err(Error::from)
+    }
+
     /// Ask the client to apply a [`WorkspaceEdit`] to its buffers
     /// (`workspace/applyEdit`).
     pub async fn apply_edit(
@@ -489,6 +524,32 @@ impl Client {
             token,
             finished: false,
         })
+    }
+
+    /// Start a progress sequence on the `workDoneToken` the client attached
+    /// to a request, if it attached one — no
+    /// [`create_progress`](Self::create_progress) round trip needed, since
+    /// the client pre-created the token. Returns `Ok(None)` when the client
+    /// did not offer a token (report no progress in that case):
+    ///
+    /// ```rust,ignore
+    /// async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+    ///     let progress = self.client.begin_progress_for(
+    ///         &params.work_done,
+    ///         WorkDoneProgressBegin { title: "Searching".into(), ..Default::default() },
+    ///     )?;
+    ///     // ... if let Some(progress) = &progress { progress.report(...)? } ...
+    /// }
+    /// ```
+    pub fn begin_progress_for(
+        &self,
+        params: &WorkDoneProgressParams,
+        begin: WorkDoneProgressBegin,
+    ) -> Result<Option<ProgressGuard>> {
+        match &params.work_done_token {
+            Some(token) => self.begin_progress(token.clone(), begin).map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Deliver a response received from the client to its waiting caller.

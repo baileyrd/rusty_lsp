@@ -7,9 +7,11 @@
 //! - **Framing & JSON-RPC** via [`crate::transport`].
 //! - **Lifecycle**: enforces `initialize` first, rejects work after `shutdown`,
 //!   stops on `exit`.
-//! - **Concurrency**: notifications run in receipt order (so document state
-//!   stays consistent), while requests are spawned so slow handlers never block
-//!   the loop.
+//! - **Concurrency**: notifications run in receipt order on a dedicated
+//!   serialized worker (so document state stays consistent) without blocking
+//!   the message loop — `$/cancelRequest` and response delivery stay
+//!   responsive even mid-`didChange` — while requests are spawned tasks that
+//!   first wait for every notification received before them to be applied.
 //! - **Cancellation**: `$/cancelRequest` aborts the in-flight handler and
 //!   replies with [`REQUEST_CANCELLED`](crate::error::codes::REQUEST_CANCELLED),
 //!   with the bookkeeping arranged so a request is answered exactly once.
@@ -49,7 +51,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::AbortHandle;
 
 /// Bookkeeping for one running request handler.
@@ -211,6 +213,50 @@ where
     let mut initialized = false;
     let mut shutdown_requested = false;
 
+    // Notifications must run in receipt order, but must not block this loop
+    // — a slow `didChange` handler would otherwise delay `$/cancelRequest`
+    // handling and response delivery to `Client::send_request` callers.
+    // They run on a dedicated serialized worker instead; each spawned
+    // request then waits on the watermark of notifications received before
+    // it, preserving the guarantee that a request observes every earlier
+    // notification's effects.
+    let (note_tx, mut note_rx) = mpsc::unbounded_channel::<QueuedNotification>();
+    let (notes_done_tx, notes_done) = watch::channel(0u64);
+    let worker_backend = Arc::clone(&backend);
+    let worker_client = client.clone();
+    let notification_worker = tokio::spawn(async move {
+        while let Some(note) = note_rx.recv().await {
+            // Catch panics per notification: an unwinding handler must not
+            // kill the worker, which would wedge every request waiting on
+            // the watermark.
+            let run = async {
+                if note.method == "initialized" {
+                    worker_backend.initialized().await;
+                } else {
+                    dispatch_notification(
+                        worker_backend.as_ref(),
+                        &worker_client,
+                        &note.method,
+                        note.params,
+                    )
+                    .await;
+                }
+            };
+            if let Err(payload) = CatchUnwind(AssertUnwindSafe(run)).await {
+                let _ = worker_client.log_message(
+                    MessageType::Error,
+                    format!(
+                        "`{}` handler panicked: {}",
+                        note.method,
+                        panic_message(&payload)
+                    ),
+                );
+            }
+            let _ = notes_done_tx.send(note.seq);
+        }
+    });
+    let mut notes_enqueued = 0u64;
+
     let loop_result = loop {
         let message = match transport::read_message(&mut reader).await {
             Ok(Some(message)) => message,
@@ -271,17 +317,18 @@ where
                     };
                 }
                 "$/cancelRequest" => cancel_request(&note, &in_flight, &out_tx),
-                "initialized" => {
-                    if initialized {
-                        backend.initialized().await;
-                    }
-                }
                 _ => {
                     // Per spec, drop notifications that arrive before
                     // `initialize` (other than `exit`, handled above).
+                    // `initialized` rides the same queue so it stays ordered
+                    // with respect to the document notifications after it.
                     if initialized {
-                        dispatch_notification(backend.as_ref(), &client, &note.method, note.params)
-                            .await;
+                        notes_enqueued += 1;
+                        let _ = note_tx.send(QueuedNotification {
+                            seq: notes_enqueued,
+                            method: note.method.clone(),
+                            params: note.params,
+                        });
                     }
                 }
             },
@@ -315,6 +362,9 @@ where
                     if !initialized {
                         send_error(&out_tx, req.id, Error::server_not_initialized());
                     } else {
+                        // Let already-received notifications land first, so
+                        // `shutdown` observes their effects like any request.
+                        wait_for_notifications(&notes_done, notes_enqueued).await;
                         shutdown_requested = true;
                         match backend.shutdown().await {
                             Ok(()) => {
@@ -334,21 +384,52 @@ where
                             Error::invalid_request("server is shutting down"),
                         );
                     } else {
-                        spawn_request(&backend, &out_tx, &in_flight, &request_permits, req);
+                        spawn_request(
+                            &backend,
+                            &out_tx,
+                            &in_flight,
+                            &request_permits,
+                            &notes_done,
+                            notes_enqueued,
+                            req,
+                        );
                     }
                 }
             },
         }
     };
 
-    // Tear down: abort any handlers still running so their captured senders and
-    // backend references drop, letting the writer task wind down.
+    // Tear down: stop feeding the notification worker, abort any handlers
+    // still running so their captured senders and backend references drop,
+    // then let the worker drain its queue — notification effects (document
+    // updates, outbound messages) complete before `serve` returns.
+    drop(note_tx);
     for (_, entry) in lock(&in_flight).drain() {
         entry.token.cancel();
         entry.abort.abort();
     }
+    let _ = notification_worker.await;
 
     loop_result
+}
+
+/// One notification queued for the serialized notification worker.
+struct QueuedNotification {
+    /// Position in the receipt order, reported on the completion watermark.
+    seq: u64,
+    method: String,
+    params: Option<Value>,
+}
+
+/// Wait until the notification worker has finished every notification up to
+/// `watermark`. Returns immediately for a zero watermark, and gives up (the
+/// caller is being torn down anyway) if the worker has gone away.
+async fn wait_for_notifications(done: &watch::Receiver<u64>, watermark: u64) {
+    if watermark == 0 {
+        return;
+    }
+    let mut done = done.clone();
+    let _ = done.wait_for(|&seq| seq >= watermark).await;
 }
 
 /// Spawn a feature request handler as its own task.
@@ -365,11 +446,14 @@ where
 /// loses the race. This function only ever runs on the single-threaded
 /// message loop (never concurrently with itself), so the check-then-insert
 /// below has no race window of its own.
+#[allow(clippy::too_many_arguments)]
 fn spawn_request<B: LanguageServer>(
     backend: &Arc<B>,
     out_tx: &Outbound,
     in_flight: &InFlight,
     request_permits: &Option<Arc<Semaphore>>,
+    notes_done: &watch::Receiver<u64>,
+    notes_watermark: u64,
     req: Request,
 ) {
     let request_id = req.id;
@@ -392,8 +476,13 @@ fn spawn_request<B: LanguageServer>(
     let token = CancelToken::new();
     let task_token = token.clone();
     let permits = request_permits.clone();
+    let notes_done = notes_done.clone();
 
     let join = tokio::spawn(cancel::scope(task_token, async move {
+        // Wait for every notification received before this request to be
+        // applied, so the handler observes document state as if dispatch
+        // were fully sequential.
+        wait_for_notifications(&notes_done, notes_watermark).await;
         // Under a concurrency cap, wait for a slot before running the
         // handler body. The task exists either way, so cancellation (which
         // aborts this task) and the exactly-once bookkeeping are unaffected

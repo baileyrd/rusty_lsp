@@ -123,3 +123,93 @@ where
 pub fn buffered<R: tokio::io::AsyncRead + Unpin>(reader: R) -> tokio::io::BufReader<R> {
     tokio::io::BufReader::new(reader)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::jsonrpc::{Notification, RequestId};
+
+    /// Read one message from raw bytes.
+    async fn parse(bytes: &[u8]) -> Result<Option<Message>> {
+        let mut reader = buffered(bytes);
+        read_message(&mut reader).await
+    }
+
+    fn frame(body: &str) -> Vec<u8> {
+        format!("Content-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
+    }
+
+    #[tokio::test]
+    async fn round_trips_a_large_multibyte_message() {
+        let note = Message::Notification(Notification {
+            method: "window/logMessage".to_owned(),
+            params: Some(serde_json::json!({"message": "héllo 😀 ".repeat(10_000)})),
+        });
+        let (mut client, server) = tokio::io::duplex(1 << 20);
+        write_message(&mut client, &note).await.expect("write");
+        drop(client);
+        let mut reader = buffered(server);
+        let read = read_message(&mut reader)
+            .await
+            .expect("read")
+            .expect("one message");
+        assert_eq!(read, note);
+        // ... and the stream ends cleanly at the frame boundary.
+        assert!(read_message(&mut reader).await.expect("eof").is_none());
+    }
+
+    #[tokio::test]
+    async fn extra_headers_and_header_case_are_tolerated() {
+        let body = r#"{"jsonrpc":"2.0","method":"m"}"#;
+        let bytes = format!(
+            "content-type: application/vscode-jsonrpc; charset=utf-8\r\n\
+             CONTENT-LENGTH: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let message = parse(bytes.as_bytes()).await.expect("ok").expect("message");
+        assert!(matches!(message, Message::Notification(n) if n.method == "m"));
+    }
+
+    #[tokio::test]
+    async fn lf_only_header_termination_is_accepted() {
+        let body = r#"{"jsonrpc":"2.0","method":"m"}"#;
+        let bytes = format!("Content-Length: {}\n\n{body}", body.len());
+        assert!(parse(bytes.as_bytes()).await.expect("ok").is_some());
+    }
+
+    #[tokio::test]
+    async fn missing_invalid_and_oversized_content_length_are_errors() {
+        assert!(parse(b"\r\n").await.is_err()); // no Content-Length at all
+        assert!(parse(b"Content-Length: nope\r\n\r\n").await.is_err());
+        // Over the limit fails before any body is read.
+        let huge = format!("Content-Length: {}\r\n\r\n", MAX_CONTENT_LENGTH + 1);
+        assert!(parse(huge.as_bytes()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_header_line_is_an_error() {
+        assert!(parse(b"not a header\r\n\r\n").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn eof_semantics_distinguish_boundary_from_mid_frame() {
+        // Clean EOF before any bytes: Ok(None).
+        assert!(parse(b"").await.expect("clean").is_none());
+        // EOF inside the header block: error.
+        assert!(parse(b"Content-Length: 10\r\n").await.is_err());
+        // EOF inside the body: error.
+        let mut bytes = frame(r#"{"jsonrpc":"2.0","method":"m"}"#);
+        bytes.truncate(bytes.len() - 5);
+        assert!(parse(&bytes).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn request_ids_survive_the_wire() {
+        let body = r#"{"jsonrpc":"2.0","id":"abc","method":"m"}"#;
+        let message = parse(&frame(body)).await.expect("ok").expect("message");
+        let Message::Request(request) = message else {
+            panic!("expected request");
+        };
+        assert_eq!(request.id, RequestId::String("abc".to_owned()));
+    }
+}

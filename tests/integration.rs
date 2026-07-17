@@ -71,7 +71,7 @@ impl LanguageServer for TestBackend {
         *self.client_capabilities.write().await = Some(params.capabilities);
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncKind::Full),
+                text_document_sync: Some(TextDocumentSyncKind::Full.into()),
                 hover_provider: Some(true),
                 completion_provider: Some(CompletionOptions::default()),
                 ..Default::default()
@@ -108,6 +108,15 @@ impl LanguageServer for TestBackend {
             CompletionItem::new("alpha").with_kind(CompletionItemKind::Text),
             CompletionItem::new("beta"),
         ])))
+    }
+
+    async fn handle_notification(&self, method: &str, _params: Option<Value>) {
+        // A deliberately slow notification, used to prove the message loop
+        // (and so cancellation) is not blocked behind notification handlers.
+        if method == "test/slow_note" {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            let _ = self.client.log_message(MessageType::Info, "slow-note-done");
+        }
     }
 
     async fn handle_request(&self, method: &str, _params: Option<Value>) -> Result<Value> {
@@ -2602,4 +2611,50 @@ async fn exit_without_shutdown_is_an_error() {
         .expect("server should stop after exit")
         .expect("server task did not panic");
     assert!(outcome.is_err(), "exit without shutdown must be an error");
+}
+
+#[tokio::test]
+async fn cancellation_is_not_blocked_by_slow_notifications() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // A long-running request, then a 5s notification handler, then a cancel.
+    // The loop must process the cancel without waiting for the notification.
+    let id = harness.request("test/sleep", json!({})).await;
+    harness.notify("test/slow_note", json!({})).await;
+    let RequestId::Number(numeric_id) = id.clone() else {
+        unreachable!("ids are numeric in this harness");
+    };
+    harness
+        .notify("$/cancelRequest", json!({ "id": numeric_id }))
+        .await;
+
+    let response = tokio::time::timeout(Duration::from_secs(3), harness.recv_response(&id))
+        .await
+        .expect("cancellation must not queue behind the slow notification");
+    assert_eq!(
+        response.error.expect("error").code,
+        codes::REQUEST_CANCELLED
+    );
+}
+
+#[tokio::test]
+async fn requests_still_observe_notifications_received_before_them() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // didOpen (handled on the notification worker) followed immediately by a
+    // hover: the hover handler must see the opened document's text.
+    harness.open("file:///order.txt", "hello hello hello").await;
+    let id = harness
+        .request(
+            "textDocument/hover",
+            position_params("file:///order.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["contents"]["value"],
+        json!("hello x3")
+    );
 }

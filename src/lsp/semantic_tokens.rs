@@ -190,3 +190,223 @@ mod tests {
         );
     }
 }
+
+/// Builds the spec's relative-encoded token array from absolute token
+/// positions, so servers never hand-compute `deltaLine`/`deltaStart` (the
+/// most error-prone encoding in LSP).
+///
+/// Push tokens in any order with [`push`](Self::push) (names resolved
+/// against the legend) or [`push_range`](Self::push_range) (a document
+/// [`crate::lsp::Range`], split across lines automatically);
+/// [`build`](Self::build) sorts them into document order and delta-encodes:
+///
+/// ```rust
+/// use rusty_lsp::lsp::{SemanticTokensBuilder, SemanticTokensLegend};
+///
+/// let legend = SemanticTokensLegend {
+///     token_types: vec!["keyword".into(), "variable".into()],
+///     token_modifiers: vec!["declaration".into()],
+/// };
+/// let mut builder = SemanticTokensBuilder::new(&legend);
+/// builder.push(0, 4, 1, "variable", &["declaration"]).unwrap();
+/// builder.push(0, 0, 3, "keyword", &[]).unwrap(); // out of order is fine
+/// let tokens = builder.build(None);
+/// assert_eq!(tokens.data, [0, 0, 3, 0, 0, 0, 4, 1, 1, 1]);
+/// ```
+#[derive(Debug, Clone)]
+pub struct SemanticTokensBuilder {
+    token_types: Vec<String>,
+    token_modifiers: Vec<String>,
+    /// Absolute tokens: (line, start, length, type index, modifier bits).
+    tokens: Vec<(u32, u32, u32, u32, u32)>,
+}
+
+impl SemanticTokensBuilder {
+    /// Build against the legend the server advertised in
+    /// [`SemanticTokensOptions::legend`]; token names passed to
+    /// [`push`](Self::push) resolve to indices in it.
+    pub fn new(legend: &SemanticTokensLegend) -> Self {
+        SemanticTokensBuilder {
+            token_types: legend.token_types.clone(),
+            token_modifiers: legend.token_modifiers.clone(),
+            tokens: Vec::new(),
+        }
+    }
+
+    /// Add a single-line token at an absolute position, resolving
+    /// `token_type` and `modifiers` names against the legend. Fails if a
+    /// name is not in the legend (a mismatch would silently mis-colour
+    /// every later token on the client).
+    pub fn push(
+        &mut self,
+        line: u32,
+        start: u32,
+        length: u32,
+        token_type: &str,
+        modifiers: &[&str],
+    ) -> crate::error::Result<()> {
+        let type_index = self
+            .token_types
+            .iter()
+            .position(|t| t == token_type)
+            .ok_or_else(|| {
+                crate::error::Error::internal(format!(
+                    "token type {token_type:?} is not in the legend"
+                ))
+            })? as u32;
+        let mut bits = 0u32;
+        for modifier in modifiers {
+            let index = self
+                .token_modifiers
+                .iter()
+                .position(|m| m == modifier)
+                .ok_or_else(|| {
+                    crate::error::Error::internal(format!(
+                        "token modifier {modifier:?} is not in the legend"
+                    ))
+                })?;
+            bits |= 1 << index;
+        }
+        self.push_raw(line, start, length, type_index, bits);
+        Ok(())
+    }
+
+    /// Add a token by pre-resolved legend index and modifier bitmask.
+    pub fn push_raw(
+        &mut self,
+        line: u32,
+        start: u32,
+        length: u32,
+        type_index: u32,
+        modifier_bits: u32,
+    ) {
+        self.tokens
+            .push((line, start, length, type_index, modifier_bits));
+    }
+
+    /// Add a token covering `range` in `text`, splitting a multi-line range
+    /// into one token per line (semantic tokens are single-line by
+    /// definition). Columns and lengths are measured in `encoding` units.
+    pub fn push_range(
+        &mut self,
+        text: &str,
+        index: &crate::text::LineIndex,
+        range: crate::lsp::Range,
+        encoding: crate::lsp::PositionEncodingKind,
+        token_type: &str,
+        modifiers: &[&str],
+    ) -> crate::error::Result<()> {
+        use crate::text::byte_to_column;
+        for line in range.start.line..=range.end.line {
+            let Some(line_start) = index.line_start(line) else {
+                break;
+            };
+            let line_end = index.line_start(line + 1).map_or(text.len(), |n| n - 1);
+            let line_text = &text[line_start..line_end];
+            let line_units = byte_to_column(line_text, line_text.len(), encoding);
+            let start = if line == range.start.line {
+                range.start.character.min(line_units)
+            } else {
+                0
+            };
+            let end = if line == range.end.line {
+                range.end.character.min(line_units)
+            } else {
+                line_units
+            };
+            if end > start {
+                self.push(line, start, end - start, token_type, modifiers)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Sort the tokens into document order and emit the delta-encoded
+    /// [`SemanticTokens`].
+    pub fn build(mut self, result_id: Option<String>) -> SemanticTokens {
+        self.tokens.sort_unstable();
+        let mut data = Vec::with_capacity(self.tokens.len() * 5);
+        let (mut previous_line, mut previous_start) = (0u32, 0u32);
+        for (line, start, length, type_index, modifier_bits) in self.tokens {
+            let delta_line = line - previous_line;
+            let delta_start = if delta_line == 0 {
+                start - previous_start
+            } else {
+                start
+            };
+            data.extend_from_slice(&[delta_line, delta_start, length, type_index, modifier_bits]);
+            (previous_line, previous_start) = (line, start);
+        }
+        SemanticTokens { result_id, data }
+    }
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use super::*;
+    use crate::lsp::{Position, PositionEncodingKind, Range};
+    use crate::text::LineIndex;
+
+    fn legend() -> SemanticTokensLegend {
+        SemanticTokensLegend {
+            token_types: vec!["keyword".into(), "variable".into()],
+            token_modifiers: vec!["declaration".into(), "readonly".into()],
+        }
+    }
+
+    #[test]
+    fn delta_encodes_across_lines_and_within_a_line() {
+        let mut builder = SemanticTokensBuilder::new(&legend());
+        builder.push(2, 10, 4, "variable", &["readonly"]).unwrap();
+        builder.push(0, 0, 3, "keyword", &[]).unwrap();
+        builder.push(2, 4, 2, "keyword", &[]).unwrap();
+        let tokens = builder.build(Some("r1".into()));
+        assert_eq!(tokens.result_id.as_deref(), Some("r1"));
+        assert_eq!(
+            tokens.data,
+            [
+                0, 0, 3, 0, 0, // line 0 col 0: keyword
+                2, 4, 2, 0, 0, // +2 lines, col 4: keyword
+                0, 6, 4, 1, 2, // same line, +6 cols: variable, readonly bit
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_names_are_rejected() {
+        let mut builder = SemanticTokensBuilder::new(&legend());
+        assert!(builder.push(0, 0, 1, "nope", &[]).is_err());
+        assert!(builder.push(0, 0, 1, "keyword", &["nope"]).is_err());
+    }
+
+    #[test]
+    fn push_range_splits_multi_line_tokens() {
+        // A "comment" spanning three lines, with a multi-byte char on line 1.
+        let legend = SemanticTokensLegend {
+            token_types: vec!["comment".into()],
+            token_modifiers: vec![],
+        };
+        let text = "abc\ndé\nxyz";
+        let index = LineIndex::new(text);
+        let mut builder = SemanticTokensBuilder::new(&legend);
+        builder
+            .push_range(
+                text,
+                &index,
+                Range::new(Position::new(0, 1), Position::new(2, 2)),
+                PositionEncodingKind::Utf16,
+                "comment",
+                &[],
+            )
+            .unwrap();
+        let tokens = builder.build(None);
+        assert_eq!(
+            tokens.data,
+            [
+                0, 1, 2, 0, 0, // line 0: cols 1..3
+                1, 0, 2, 0, 0, // line 1: cols 0..2 ("dé" is 2 UTF-16 units)
+                1, 0, 2, 0, 0, // line 2: cols 0..2
+            ]
+        );
+    }
+}
