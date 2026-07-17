@@ -298,6 +298,17 @@ int_enum! {
     }
 }
 
+int_enum! {
+    /// How a `textDocument/inlineCompletion` request was triggered
+    /// (LSP 3.18, proposed).
+    pub enum InlineCompletionTriggerKind {
+        /// Explicitly invoked by a user gesture.
+        Invoked = 1,
+        /// Triggered automatically while the user types.
+        Automatic = 2,
+    }
+}
+
 /// The format of a [`crate::lsp::MarkupContent`] value. Unlike the enums above
 /// this is encoded as a JSON string, so it uses a plain serde derive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

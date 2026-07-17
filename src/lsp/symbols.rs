@@ -1,9 +1,10 @@
 //! `textDocument/documentSymbol` and `workspace/symbol` types.
 
-use super::base::{Location, Range, TextDocumentIdentifier};
-use super::enums::SymbolKind;
+use super::base::{Location, Range, TextDocumentIdentifier, Uri};
+use super::enums::{SymbolKind, SymbolTag};
 use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Parameters of `textDocument/documentSymbol`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +135,97 @@ pub struct WorkspaceSymbolParams {
     pub partial_result: PartialResultParams,
 }
 
+/// Result of `workspace/symbol`: either the pre-3.17 flat
+/// [`SymbolInformation`] list or the 3.17 [`WorkspaceSymbol`] list (which
+/// supports lazy range resolution via `workspaceSymbol/resolve`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceSymbolResponse {
+    /// The pre-3.17 form.
+    Flat(Vec<SymbolInformation>),
+    /// The 3.17 form, resolvable via `workspaceSymbol/resolve`.
+    Full(Vec<WorkspaceSymbol>),
+}
+
+impl From<Vec<SymbolInformation>> for WorkspaceSymbolResponse {
+    fn from(symbols: Vec<SymbolInformation>) -> Self {
+        WorkspaceSymbolResponse::Flat(symbols)
+    }
+}
+
+impl From<Vec<WorkspaceSymbol>> for WorkspaceSymbolResponse {
+    fn from(symbols: Vec<WorkspaceSymbol>) -> Self {
+        WorkspaceSymbolResponse::Full(symbols)
+    }
+}
+
+/// A workspace symbol (LSP 3.17). Unlike [`SymbolInformation`], its location
+/// may initially carry only a URI, with the precise range filled in later by
+/// `workspaceSymbol/resolve`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbol {
+    /// The symbol's name.
+    pub name: String,
+    /// The symbol's kind.
+    pub kind: SymbolKind,
+    /// Tags qualifying the symbol (e.g. deprecated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<SymbolTag>>,
+    /// The name of the symbol containing this one, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    /// Where the symbol lives; may be URI-only until resolved.
+    pub location: WorkspaceSymbolLocation,
+    /// Opaque data round-tripped through `workspaceSymbol/resolve`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+impl WorkspaceSymbol {
+    /// Build a symbol from its name, kind, and (possibly URI-only) location.
+    pub fn new(
+        name: impl Into<String>,
+        kind: SymbolKind,
+        location: impl Into<WorkspaceSymbolLocation>,
+    ) -> Self {
+        WorkspaceSymbol {
+            name: name.into(),
+            kind,
+            tags: None,
+            container_name: None,
+            location: location.into(),
+            data: None,
+        }
+    }
+}
+
+/// A [`WorkspaceSymbol`]'s location: a full [`Location`], or just a document
+/// URI for servers that resolve the range lazily.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceSymbolLocation {
+    /// A full location (URI + range).
+    Full(Location),
+    /// A URI-only location; the range arrives via `workspaceSymbol/resolve`.
+    UriOnly {
+        /// The document URI.
+        uri: Uri,
+    },
+}
+
+impl From<Location> for WorkspaceSymbolLocation {
+    fn from(location: Location) -> Self {
+        WorkspaceSymbolLocation::Full(location)
+    }
+}
+
+impl From<Uri> for WorkspaceSymbolLocation {
+    fn from(uri: Uri) -> Self {
+        WorkspaceSymbolLocation::UriOnly { uri }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,7 +255,7 @@ mod tests {
             "bar",
             SymbolKind::Variable,
             Location {
-                uri: "file:///a".to_owned(),
+                uri: "file:///a".into(),
                 range: range(),
             },
         )]);
@@ -191,7 +283,7 @@ mod tests {
     fn document_symbol_params_uses_camel_case() {
         let params = DocumentSymbolParams {
             text_document: TextDocumentIdentifier {
-                uri: "file:///a".to_owned(),
+                uri: "file:///a".into(),
             },
             work_done: Default::default(),
             partial_result: Default::default(),
@@ -199,4 +291,15 @@ mod tests {
         let value = serde_json::to_value(&params).unwrap();
         assert_eq!(value, json!({"textDocument": {"uri": "file:///a"}}));
     }
+}
+
+/// Options describing the server's `workspace/symbol` support, advertised in
+/// [`crate::lsp::ServerCapabilities::workspace_symbol_provider`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbolOptions {
+    /// Whether the server resolves ranges lazily via
+    /// `workspaceSymbol/resolve`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolve_provider: Option<bool>,
 }

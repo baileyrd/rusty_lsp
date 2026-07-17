@@ -14,7 +14,8 @@
 //!   replies with [`REQUEST_CANCELLED`](crate::error::codes::REQUEST_CANCELLED),
 //!   with the bookkeeping arranged so a request is answered exactly once.
 
-use crate::client::Client;
+use crate::cancel::{self, CancelToken};
+use crate::client::{Client, Outbound};
 use crate::error::{Error, ResponseError, Result, codes};
 use crate::jsonrpc::{Message, Notification, Request, RequestId, Response};
 use crate::lsp::{
@@ -28,12 +29,13 @@ use crate::lsp::{
     DocumentDiagnosticParams, DocumentFormattingParams, DocumentLink, DocumentLinkParams,
     DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
     ExecuteCommandParams, FoldingRangeParams, HoverParams, InitializeParams, InlayHint,
-    InlayHintParams, MessageType, ReferenceParams, RenameFilesParams, RenameParams,
+    InlayHintParams, InlineCompletionParams, InlineValueParams, LinkedEditingRangeParams,
+    MessageType, MonikerParams, ReferenceParams, RenameFilesParams, RenameParams,
     SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
     SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, TextDocumentPositionParams,
     TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
     WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
-    WorkspaceSymbolParams,
+    WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use crate::service::LanguageServer;
 use crate::transport;
@@ -41,13 +43,27 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use tokio::task::AbortHandle;
 
-/// Map of request ids to the abort handle of their running handler task.
-type InFlight = Arc<Mutex<HashMap<RequestId, AbortHandle>>>;
+/// Bookkeeping for one running request handler.
+struct InFlightEntry {
+    /// Aborts the handler task at its next `.await` point.
+    abort: AbortHandle,
+    /// The cooperative signal visible to the handler via
+    /// [`crate::cancel::current`], reaching work an abort cannot (blocking
+    /// pools, helper tasks, CPU-bound stretches).
+    token: CancelToken,
+}
+
+/// Map of request ids to their running handlers' bookkeeping.
+type InFlight = Arc<Mutex<HashMap<RequestId, InFlightEntry>>>;
 
 /// Params of the `$/cancelRequest` notification.
 #[derive(serde::Deserialize)]
@@ -63,6 +79,8 @@ struct CancelParams {
 pub struct Server<R, W> {
     reader: R,
     writer: W,
+    max_concurrent_requests: Option<usize>,
+    outbound_queue_limit: Option<usize>,
 }
 
 impl Server<tokio::io::Stdin, tokio::io::Stdout> {
@@ -75,6 +93,17 @@ impl Server<tokio::io::Stdin, tokio::io::Stdout> {
     }
 }
 
+#[cfg(feature = "tcp")]
+impl Server<tokio::net::tcp::OwnedReadHalf, tokio::net::tcp::OwnedWriteHalf> {
+    /// Build a server over an accepted TCP connection (requires the `tcp`
+    /// feature), for clients that connect over a socket instead of spawning
+    /// the server as a child process.
+    pub fn from_tcp(stream: tokio::net::TcpStream) -> Self {
+        let (reader, writer) = stream.into_split();
+        Server::new(reader, writer)
+    }
+}
+
 impl<R, W> Server<R, W>
 where
     R: AsyncRead + Unpin,
@@ -82,7 +111,35 @@ where
 {
     /// Build a server over an arbitrary reader and writer.
     pub fn new(reader: R, writer: W) -> Self {
-        Server { reader, writer }
+        Server {
+            reader,
+            writer,
+            max_concurrent_requests: None,
+            outbound_queue_limit: None,
+        }
+    }
+
+    /// Cap how many request handlers may execute concurrently (default:
+    /// unlimited). Excess requests still get their own task immediately —
+    /// so cancellation and lifecycle bookkeeping work as usual — but wait
+    /// their (FIFO) turn before the handler body runs. This bounds the
+    /// damage a misbehaving client flooding requests can do.
+    #[must_use]
+    pub fn with_max_concurrent_requests(mut self, limit: usize) -> Self {
+        self.max_concurrent_requests = Some(limit);
+        self
+    }
+
+    /// Cap how many outbound messages may sit unwritten in the output queue
+    /// (default: unlimited). The cap applies to [`Client`]-originated
+    /// traffic (notifications and server→client requests), which fails with
+    /// an error once the queue is full — a backpressure signal that the
+    /// editor is not draining its end. Responses the protocol owes the
+    /// client are never dropped and do not observe the cap.
+    #[must_use]
+    pub fn with_outbound_queue_limit(mut self, limit: usize) -> Self {
+        self.outbound_queue_limit = Some(limit);
+        self
     }
 
     /// Run the server until the connection closes or the client sends `exit`.
@@ -95,22 +152,31 @@ where
         B: LanguageServer,
         F: FnOnce(Client) -> B,
     {
-        let Server { reader, mut writer } = self;
+        let Server {
+            reader,
+            mut writer,
+            max_concurrent_requests,
+            outbound_queue_limit,
+        } = self;
 
         let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
-        let client = Client::new(out_tx.clone());
+        let queue_depth = Arc::new(AtomicUsize::new(0));
+        let outbound = Outbound::new(out_tx, Arc::clone(&queue_depth), outbound_queue_limit);
+        let client = Client::new(outbound.clone());
         let backend = Arc::new(build(client.clone()));
+        let request_permits = max_concurrent_requests.map(|limit| Arc::new(Semaphore::new(limit)));
 
         // Single writer task: serializes all outbound traffic and is the sole
         // owner of the write half. It ends once every sender is dropped.
         let writer_task = tokio::spawn(async move {
             while let Some(message) = out_rx.recv().await {
+                queue_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 transport::write_message(&mut writer, &message).await?;
             }
             Ok::<(), Error>(())
         });
 
-        let result = run_loop(reader, client, out_tx, backend).await;
+        let result = run_loop(reader, client, outbound, request_permits, backend).await;
 
         // `run_loop` has dropped its senders and aborted in-flight handlers on
         // return; await the writer so buffered output is flushed before exit.
@@ -128,7 +194,8 @@ where
 async fn run_loop<R, B>(
     reader: R,
     client: Client,
-    out_tx: mpsc::UnboundedSender<Message>,
+    out_tx: Outbound,
+    request_permits: Option<Arc<Semaphore>>,
     backend: Arc<B>,
 ) -> Result<()>
 where
@@ -170,6 +237,19 @@ where
                 break Err(err);
             }
         };
+
+        #[cfg(feature = "tracing")]
+        match &message {
+            Message::Request(req) => {
+                tracing::debug!(method = %req.method, id = %req.id, "<-- request");
+            }
+            Message::Notification(note) => {
+                tracing::debug!(method = %note.method, "<-- notification");
+            }
+            Message::Response(response) => {
+                tracing::debug!(id = ?response.id, ok = response.error.is_none(), "<-- response");
+            }
+        }
 
         match message {
             Message::Response(response) => client.resolve(response),
@@ -240,7 +320,7 @@ where
                             Error::invalid_request("server is shutting down"),
                         );
                     } else {
-                        spawn_request(&backend, &out_tx, &in_flight, req);
+                        spawn_request(&backend, &out_tx, &in_flight, &request_permits, req);
                     }
                 }
             },
@@ -249,8 +329,9 @@ where
 
     // Tear down: abort any handlers still running so their captured senders and
     // backend references drop, letting the writer task wind down.
-    for (_, handle) in lock(&in_flight).drain() {
-        handle.abort();
+    for (_, entry) in lock(&in_flight).drain() {
+        entry.token.cancel();
+        entry.abort.abort();
     }
 
     loop_result
@@ -272,8 +353,9 @@ where
 /// below has no race window of its own.
 fn spawn_request<B: LanguageServer>(
     backend: &Arc<B>,
-    out_tx: &mpsc::UnboundedSender<Message>,
+    out_tx: &Outbound,
     in_flight: &InFlight,
+    request_permits: &Option<Arc<Semaphore>>,
     req: Request,
 ) {
     let request_id = req.id;
@@ -293,51 +375,85 @@ fn spawn_request<B: LanguageServer>(
     let handler_out_tx = out_tx.clone();
     let in_flight_for_task = Arc::clone(in_flight);
     let response_id = request_id.clone();
+    let token = CancelToken::new();
+    let task_token = token.clone();
+    let permits = request_permits.clone();
 
-    let join = tokio::spawn(async move {
-        let outcome = dispatch_request(backend.as_ref(), &method, params).await;
+    let join = tokio::spawn(cancel::scope(task_token, async move {
+        // Under a concurrency cap, wait for a slot before running the
+        // handler body. The task exists either way, so cancellation (which
+        // aborts this task) and the exactly-once bookkeeping are unaffected
+        // by queueing. `acquire_owned` on an unclosed semaphore cannot fail.
+        let _permit = match permits {
+            Some(semaphore) => semaphore.acquire_owned().await.ok(),
+            None => None,
+        };
+        // Catch panics in-task so the panic itself becomes the response —
+        // there is no separate watcher task racing for the entry.
+        let outcome = CatchUnwind(AssertUnwindSafe(dispatch_request(
+            backend.as_ref(),
+            &method,
+            params,
+        )))
+        .await;
         // Claim the right to respond. If the entry is already gone, a cancel
         // beat us to it and has sent the cancellation response.
         if lock(&in_flight_for_task).remove(&response_id).is_some() {
             let response = match outcome {
-                Ok(value) => Response::success(response_id, value),
-                Err(err) => Response::error(Some(response_id), err.into_response_error()),
+                Ok(Ok(value)) => Response::success(response_id, value),
+                Ok(Err(err)) => Response::error(Some(response_id), err.into_response_error()),
+                Err(payload) => Response::error(
+                    Some(response_id),
+                    Error::internal(format!("handler panicked: {}", panic_message(&payload)))
+                        .into_response_error(),
+                ),
             };
             let _ = handler_out_tx.send(response.into());
         }
-    });
+    }));
 
-    lock(in_flight).insert(request_id.clone(), join.abort_handle());
-
-    // A handler that panics unwinds before it can claim its `InFlight` entry
-    // or send a response, which would otherwise leave the request answered
-    // never. Watch the join and, if it failed because the handler panicked
-    // (not because a cancel aborted it first), answer with INTERNAL_ERROR.
-    let in_flight_for_watch = Arc::clone(in_flight);
-    let watch_out_tx = out_tx.clone();
-    tokio::spawn(async move {
-        if let Err(join_err) = join.await
-            && join_err.is_panic()
-            && lock(&in_flight_for_watch).remove(&request_id).is_some()
-        {
-            let _ = watch_out_tx.send(
-                Response::error(
-                    Some(request_id),
-                    Error::internal(format!("handler panicked: {join_err}")).into_response_error(),
-                )
-                .into(),
-            );
-        }
-    });
+    lock(in_flight).insert(
+        request_id,
+        InFlightEntry {
+            abort: join.abort_handle(),
+            token,
+        },
+    );
 }
 
-/// Handle `$/cancelRequest`: abort the named handler and reply with a
-/// cancellation error, but only if the request is still in flight.
-fn cancel_request(
-    note: &Notification,
-    in_flight: &InFlight,
-    out_tx: &mpsc::UnboundedSender<Message>,
-) {
+/// A future adapter that catches panics from the inner future's `poll`,
+/// resolving to `Err(payload)` instead of unwinding into the executor.
+struct CatchUnwind<F>(F);
+
+impl<F: Future> Future for CatchUnwind<F> {
+    type Output = std::result::Result<F::Output, Box<dyn std::any::Any + Send>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // SAFETY: structural pinning of the sole field; it is never moved.
+        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
+        match std::panic::catch_unwind(AssertUnwindSafe(|| inner.poll(cx))) {
+            Ok(Poll::Pending) => Poll::Pending,
+            Ok(Poll::Ready(value)) => Poll::Ready(Ok(value)),
+            Err(payload) => Poll::Ready(Err(payload)),
+        }
+    }
+}
+
+/// Best-effort extraction of a panic payload's message.
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> &str {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        s
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s
+    } else {
+        "non-string panic payload"
+    }
+}
+
+/// Handle `$/cancelRequest`: signal the handler's [`CancelToken`], abort its
+/// task, and reply with a cancellation error, but only if the request is
+/// still in flight.
+fn cancel_request(note: &Notification, in_flight: &InFlight, out_tx: &Outbound) {
     let Some(params) = note.params.clone() else {
         return;
     };
@@ -346,8 +462,13 @@ fn cancel_request(
     };
     // Removing here both stops the handler and prevents it from later sending
     // its own response (it will find its entry already gone).
-    if let Some(handle) = lock(in_flight).remove(&id) {
-        handle.abort();
+    if let Some(entry) = lock(in_flight).remove(&id) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(id = %id, "request cancelled by client");
+        // Trip the cooperative token first, so work the abort cannot reach
+        // (spawn_blocking, helper tasks) observes the cancellation too.
+        entry.token.cancel();
+        entry.abort.abort();
         let _ = out_tx.send(
             Response::error(Some(id), Error::request_cancelled().into_response_error()).into(),
         );
@@ -408,6 +529,11 @@ async fn dispatch_request<B: LanguageServer>(
         "workspace/symbol" => to_json(
             &backend
                 .symbol(parse_params::<WorkspaceSymbolParams>(params)?)
+                .await?,
+        ),
+        "workspaceSymbol/resolve" => to_json(
+            &backend
+                .workspace_symbol_resolve(parse_params::<WorkspaceSymbol>(params)?)
                 .await?,
         ),
         "textDocument/signatureHelp" => to_json(
@@ -580,6 +706,26 @@ async fn dispatch_request<B: LanguageServer>(
                 .subtypes(parse_params::<TypeHierarchySubtypesParams>(params)?)
                 .await?,
         ),
+        "textDocument/moniker" => to_json(
+            &backend
+                .moniker(parse_params::<MonikerParams>(params)?)
+                .await?,
+        ),
+        "textDocument/linkedEditingRange" => to_json(
+            &backend
+                .linked_editing_range(parse_params::<LinkedEditingRangeParams>(params)?)
+                .await?,
+        ),
+        "textDocument/inlineValue" => to_json(
+            &backend
+                .inline_value(parse_params::<InlineValueParams>(params)?)
+                .await?,
+        ),
+        "textDocument/inlineCompletion" => to_json(
+            &backend
+                .inline_completion(parse_params::<InlineCompletionParams>(params)?)
+                .await?,
+        ),
         _ => backend.handle_request(method, params).await,
     }
 }
@@ -703,7 +849,7 @@ fn to_json<T: Serialize>(value: &T) -> Result<Value> {
 }
 
 /// Enqueue an error response for `id`.
-fn send_error(out_tx: &mpsc::UnboundedSender<Message>, id: RequestId, err: Error) {
+fn send_error(out_tx: &Outbound, id: RequestId, err: Error) {
     let _ = out_tx.send(Response::error(Some(id), err.into_response_error()).into());
 }
 

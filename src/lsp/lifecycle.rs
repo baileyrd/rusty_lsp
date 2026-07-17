@@ -12,6 +12,7 @@ use super::inlay_hint::InlayHintOptions;
 use super::links::DocumentLinkOptions;
 use super::notebook::NotebookDocumentSyncOptions;
 use super::semantic_tokens::SemanticTokensOptions;
+use super::symbols::WorkspaceSymbolOptions;
 use super::workspace::{ExecuteCommandOptions, WorkspaceFolder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -53,6 +54,29 @@ pub struct InitializeParams {
     pub extra: Map<String, Value>,
 }
 
+impl InitializeParams {
+    /// The workspace's root folders, unified across the two ways clients
+    /// report them: [`workspace_folders`](Self::workspace_folders) when the
+    /// client supports multi-root, else a single folder synthesized from the
+    /// deprecated [`root_uri`](Self::root_uri). Empty when the client sent
+    /// neither (e.g. a single loose file is open).
+    pub fn workspace_roots(&self) -> Vec<WorkspaceFolder> {
+        if let Some(folders) = &self.workspace_folders {
+            return folders.clone();
+        }
+        self.root_uri
+            .as_ref()
+            .map(|uri| {
+                let name = uri.rsplit('/').next().unwrap_or("").to_owned();
+                vec![WorkspaceFolder {
+                    uri: uri.clone(),
+                    name,
+                }]
+            })
+            .unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,7 +108,7 @@ mod tests {
         assert_eq!(
             params.workspace_folders,
             Some(vec![WorkspaceFolder {
-                uri: "file:///a".to_owned(),
+                uri: "file:///a".into(),
                 name: "a".to_owned(),
             }])
         );
@@ -229,9 +253,10 @@ pub struct ServerCapabilities {
     /// Whether the server provides document-symbol support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_symbol_provider: Option<bool>,
-    /// Whether the server provides workspace-symbol support.
+    /// Whether the server provides workspace-symbol support (optionally with
+    /// `workspaceSymbol/resolve`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace_symbol_provider: Option<bool>,
+    pub workspace_symbol_provider: Option<WorkspaceSymbolProviderCapability>,
     /// Signature-help support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature_help_provider: Option<SignatureHelpOptions>,
@@ -292,6 +317,21 @@ pub struct ServerCapabilities {
     /// Notebook-document sync support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notebook_document_sync: Option<NotebookDocumentSyncOptions>,
+    /// Whether the server provides `textDocument/moniker` support (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moniker_provider: Option<bool>,
+    /// Whether the server provides `textDocument/linkedEditingRange` support
+    /// (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_editing_range_provider: Option<bool>,
+    /// Whether the server provides `textDocument/inlineValue` support
+    /// (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_value_provider: Option<bool>,
+    /// Whether the server provides `textDocument/inlineCompletion` support
+    /// (LSP 3.18, proposed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_completion_provider: Option<bool>,
     /// Any additional capabilities not modelled above.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -364,6 +404,24 @@ pub enum RenameProviderCapability {
 impl Default for RenameProviderCapability {
     fn default() -> Self {
         RenameProviderCapability::Simple(false)
+    }
+}
+
+/// Either a plain boolean or [`WorkspaceSymbolOptions`], matching the spec's
+/// `boolean | WorkspaceSymbolOptions` shape for `workspaceSymbolProvider`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceSymbolProviderCapability {
+    /// `true`/`false`: workspace symbols are (not) supported, with no
+    /// `workspaceSymbol/resolve`.
+    Simple(bool),
+    /// Workspace symbols are supported with the given options.
+    Options(WorkspaceSymbolOptions),
+}
+
+impl Default for WorkspaceSymbolProviderCapability {
+    fn default() -> Self {
+        WorkspaceSymbolProviderCapability::Simple(false)
     }
 }
 

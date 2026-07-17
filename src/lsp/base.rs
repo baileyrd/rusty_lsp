@@ -1,12 +1,278 @@
 //! Foundational LSP value types shared across requests.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::borrow::Borrow;
+use std::path::{Path, PathBuf};
 
 /// A document URI, e.g. `file:///home/user/main.rs`.
 ///
-/// LSP transmits URIs as opaque strings; this alias documents intent at call
-/// sites without imposing a parsing dependency.
-pub type Uri = String;
+/// LSP transmits URIs as opaque strings, but comparing them as raw strings is
+/// hazardous: `file:///A%2Fb` and `file:///a%2fb` differ byte-wise while two
+/// clients may emit either form. `Uri` is a lightweight newtype (no parsing
+/// dependency) that **normalizes on construction** — the scheme is lowercased
+/// and percent-encoding hex digits are uppercased — so equality, hashing, and
+/// map lookups (e.g. in [`crate::Documents`]) agree across those spellings.
+/// Path case is left untouched, since it is significant on most filesystems.
+///
+/// Construct one with [`Uri::new`] (or `From<&str>` / `From<String>`), and
+/// convert to/from filesystem paths with [`Uri::from_file_path`] /
+/// [`Uri::to_file_path`]. `Uri` dereferences to `str`, so string inspection
+/// (`starts_with`, `split`, …) works directly.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct Uri(String);
+
+impl Uri {
+    /// Build a URI from a string, normalizing the scheme to lowercase and
+    /// percent-encoding hex digits to uppercase.
+    pub fn new(uri: impl Into<String>) -> Self {
+        Uri(normalize_uri(uri.into()))
+    }
+
+    /// The URI as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume the URI, returning the underlying string.
+    pub fn into_string(self) -> String {
+        self.0
+    }
+
+    /// The URI's scheme (e.g. `"file"`), if it has a syntactically valid one.
+    pub fn scheme(&self) -> Option<&str> {
+        let (scheme, _) = self.0.split_once(':')?;
+        is_valid_scheme(scheme).then_some(scheme)
+    }
+
+    /// Build a `file://` URI from an absolute filesystem path,
+    /// percent-encoding characters as needed. Returns `None` for relative or
+    /// non-UTF-8 paths.
+    pub fn from_file_path(path: impl AsRef<Path>) -> Option<Uri> {
+        let path = path.as_ref();
+        if !path.is_absolute() {
+            return None;
+        }
+        let path = path.to_str()?;
+        let mut out = String::with_capacity(path.len() + 8);
+        out.push_str("file://");
+        #[cfg(windows)]
+        {
+            out.push('/');
+            for ch in path.chars() {
+                match ch {
+                    '\\' => out.push('/'),
+                    _ => encode_path_char(&mut out, ch),
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        for ch in path.chars() {
+            encode_path_char(&mut out, ch);
+        }
+        Some(Uri(out))
+    }
+
+    /// Convert a `file://` URI back to a filesystem path, percent-decoding
+    /// as needed. Returns `None` if the URI is not a `file` URI, names a
+    /// remote host, or decodes to invalid UTF-8.
+    pub fn to_file_path(&self) -> Option<PathBuf> {
+        let rest = self.0.strip_prefix("file://")?;
+        let (authority, path) = match rest.find('/') {
+            Some(idx) => rest.split_at(idx),
+            None => (rest, ""),
+        };
+        if !(authority.is_empty() || authority.eq_ignore_ascii_case("localhost")) {
+            return None;
+        }
+        let decoded = percent_decode(path)?;
+        #[cfg(windows)]
+        {
+            // `file:///c:/x` decodes to `/c:/x`; strip the leading slash
+            // before a drive letter.
+            let bytes = decoded.as_bytes();
+            let decoded = if bytes.len() >= 3
+                && bytes[0] == b'/'
+                && bytes[1].is_ascii_alphabetic()
+                && bytes[2] == b':'
+            {
+                decoded[1..].replace('/', "\\")
+            } else {
+                decoded.replace('/', "\\")
+            };
+            return Some(PathBuf::from(decoded));
+        }
+        #[cfg(not(windows))]
+        Some(PathBuf::from(decoded))
+    }
+}
+
+/// Whether `scheme` is a syntactically valid URI scheme
+/// (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`).
+fn is_valid_scheme(scheme: &str) -> bool {
+    let mut chars = scheme.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// Lowercase the scheme and uppercase percent-encoding hex digits.
+fn normalize_uri(uri: String) -> String {
+    let scheme_len = match uri.split_once(':') {
+        Some((scheme, _)) if is_valid_scheme(scheme) => scheme.len(),
+        _ => 0,
+    };
+    let needs_scheme_fix = uri[..scheme_len].bytes().any(|b| b.is_ascii_uppercase());
+    let needs_hex_fix = uri.bytes().enumerate().any(|(i, b)| {
+        b == b'%'
+            && uri.as_bytes()[i + 1..]
+                .iter()
+                .take(2)
+                .any(u8::is_ascii_lowercase)
+    });
+    if !needs_scheme_fix && !needs_hex_fix {
+        return uri;
+    }
+    let mut bytes = uri.into_bytes();
+    for b in &mut bytes[..scheme_len] {
+        b.make_ascii_lowercase();
+    }
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            for b in bytes.iter_mut().skip(i + 1).take(2) {
+                if b.is_ascii_hexdigit() {
+                    b.make_ascii_uppercase();
+                }
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    // The transformations only touch ASCII bytes, so UTF-8 validity holds.
+    String::from_utf8(bytes).expect("ASCII-only edits preserve UTF-8")
+}
+
+/// Append `ch` to `out`, percent-encoding it unless it is an RFC 3986
+/// unreserved character or a path separator (and `:` on Windows, for drive
+/// letters).
+fn encode_path_char(out: &mut String, ch: char) {
+    let keep = ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_' | '~' | '/');
+    #[cfg(windows)]
+    let keep = keep || ch == ':';
+    if keep {
+        out.push(ch);
+    } else {
+        let mut buf = [0u8; 4];
+        for byte in ch.encode_utf8(&mut buf).bytes() {
+            out.push('%');
+            out.push(
+                char::from_digit((byte >> 4) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+            out.push(
+                char::from_digit((byte & 0xF) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+        }
+    }
+}
+
+/// Percent-decode `s`, returning `None` on malformed escapes or invalid UTF-8.
+fn percent_decode(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hi = char::from(*bytes.get(i + 1)?).to_digit(16)?;
+            let lo = char::from(*bytes.get(i + 2)?).to_digit(16)?;
+            out.push((hi as u8) << 4 | lo as u8);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+impl<'de> Deserialize<'de> for Uri {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Uri::new)
+    }
+}
+
+impl From<String> for Uri {
+    fn from(s: String) -> Self {
+        Uri::new(s)
+    }
+}
+
+impl From<&str> for Uri {
+    fn from(s: &str) -> Self {
+        Uri::new(s)
+    }
+}
+
+impl std::fmt::Display for Uri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::ops::Deref for Uri {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for Uri {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+// `Hash`/`Eq` on `Uri` delegate to the inner string, so borrowing as `str`
+// is consistent — this is what lets `HashMap<Uri, _>` be queried by `&str`.
+impl Borrow<str> for Uri {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl PartialEq<str> for Uri {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for Uri {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<String> for Uri {
+    fn eq(&self, other: &String) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<Uri> for str {
+    fn eq(&self, other: &Uri) -> bool {
+        self == other.0
+    }
+}
+
+impl PartialEq<Uri> for &str {
+    fn eq(&self, other: &Uri) -> bool {
+        *self == other.0
+    }
+}
 
 /// A zero-based position inside a text document.
 ///
@@ -91,4 +357,58 @@ pub struct TextDocumentPositionParams {
     pub text_document: TextDocumentIdentifier,
     /// The position inside that document.
     pub position: Position,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uri_normalizes_scheme_and_percent_hex() {
+        assert_eq!(Uri::new("FILE:///a%2fb").as_str(), "file:///a%2Fb");
+        // Path case is preserved.
+        assert_eq!(Uri::new("file:///A/b").as_str(), "file:///A/b");
+        // Differently-spelled equivalents compare equal after normalization.
+        assert_eq!(Uri::new("File:///x%3d"), Uri::new("file:///x%3D"));
+    }
+
+    #[test]
+    fn uri_round_trips_through_serde_normalized() {
+        let uri: Uri = serde_json::from_str("\"FILE:///a\"").unwrap();
+        assert_eq!(uri, "file:///a");
+        assert_eq!(serde_json::to_string(&uri).unwrap(), "\"file:///a\"");
+    }
+
+    #[test]
+    fn uri_file_path_round_trip() {
+        let uri = Uri::from_file_path("/home/user/hello world.rs").expect("absolute path");
+        assert_eq!(uri.as_str(), "file:///home/user/hello%20world.rs");
+        assert_eq!(
+            uri.to_file_path().expect("file uri"),
+            std::path::PathBuf::from("/home/user/hello world.rs")
+        );
+        assert!(Uri::from_file_path("relative/path").is_none());
+        assert!(Uri::new("https://example.com/x").to_file_path().is_none());
+        // A remote host is not a local file path.
+        assert!(Uri::new("file://host/x").to_file_path().is_none());
+        // `localhost` is accepted as local.
+        assert_eq!(
+            Uri::new("file://localhost/x").to_file_path(),
+            Some(std::path::PathBuf::from("/x"))
+        );
+    }
+
+    #[test]
+    fn uri_scheme_parses_and_validates() {
+        assert_eq!(Uri::new("file:///a").scheme(), Some("file"));
+        assert_eq!(Uri::new("untitled:Untitled-1").scheme(), Some("untitled"));
+        assert_eq!(Uri::new("not a uri").scheme(), None);
+    }
+
+    #[test]
+    fn uri_borrows_as_str_for_map_lookups() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(Uri::new("file:///a"), 1);
+        assert_eq!(map.get("file:///a"), Some(&1));
+    }
 }

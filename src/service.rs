@@ -32,14 +32,16 @@ use crate::lsp::{
     DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
     DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, FoldingRange,
     FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
-    PrepareRenameResponse, ReferenceParams, RenameFilesParams, RenameParams, SelectionRange,
-    SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams, SemanticTokensDeltaResult,
-    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelp,
-    SignatureHelpParams, SymbolInformation, TextDocumentPositionParams, TextEdit,
-    TypeHierarchyItem, TypeHierarchyPrepareParams, TypeHierarchySubtypesParams,
-    TypeHierarchySupertypesParams, WillSaveTextDocumentParams, WorkDoneProgressCancelParams,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbolParams,
+    InitializeParams, InitializeResult, InlayHint, InlayHintParams, InlineCompletionParams,
+    InlineCompletionResponse, InlineValue, InlineValueParams, LinkedEditingRangeParams,
+    LinkedEditingRanges, Location, Moniker, MonikerParams, PrepareRenameResponse, ReferenceParams,
+    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
+    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelp, SignatureHelpParams,
+    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, WillSaveTextDocumentParams,
+    WorkDoneProgressCancelParams, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -184,12 +186,30 @@ pub trait LanguageServer: Send + Sync + 'static {
     }
 
     /// Handle `workspace/symbol`.
+    ///
+    /// Return either the pre-3.17 flat form or the 3.17
+    /// [`WorkspaceSymbol`] form (both convert via `.into()`); the latter
+    /// supports lazy range resolution through
+    /// [`workspace_symbol_resolve`](Self::workspace_symbol_resolve).
     fn symbol(
         &self,
         params: WorkspaceSymbolParams,
-    ) -> impl Future<Output = Result<Option<Vec<SymbolInformation>>>> + Send {
+    ) -> impl Future<Output = Result<Option<WorkspaceSymbolResponse>>> + Send {
         let _ = params;
         async { Ok(None) }
+    }
+
+    /// Handle `workspaceSymbol/resolve`.
+    ///
+    /// The default returns `symbol` unchanged, which is only correct if
+    /// [`crate::lsp::ServerCapabilities::workspace_symbol_provider`]'s
+    /// resolve support is left unset/`false` — override this alongside
+    /// advertising resolve support.
+    fn workspace_symbol_resolve(
+        &self,
+        symbol: WorkspaceSymbol,
+    ) -> impl Future<Output = Result<WorkspaceSymbol>> + Send {
+        async { Ok(symbol) }
     }
 
     /// Handle `textDocument/signatureHelp`.
@@ -594,6 +614,50 @@ pub trait LanguageServer: Send + Sync + 'static {
         &self,
         params: TypeHierarchySubtypesParams,
     ) -> impl Future<Output = Result<Option<Vec<TypeHierarchyItem>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/moniker` (LSP 3.16): stable symbol identifiers
+    /// for cross-index correlation. Advertise via
+    /// [`crate::lsp::ServerCapabilities::moniker_provider`].
+    fn moniker(
+        &self,
+        params: MonikerParams,
+    ) -> impl Future<Output = Result<Option<Vec<Moniker>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/linkedEditingRange` (LSP 3.16): ranges edited in
+    /// lockstep (e.g. paired HTML tags). Advertise via
+    /// [`crate::lsp::ServerCapabilities::linked_editing_range_provider`].
+    fn linked_editing_range(
+        &self,
+        params: LinkedEditingRangeParams,
+    ) -> impl Future<Output = Result<Option<LinkedEditingRanges>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/inlineValue` (LSP 3.17): values shown inline
+    /// while stopped in a debugger. Advertise via
+    /// [`crate::lsp::ServerCapabilities::inline_value_provider`].
+    fn inline_value(
+        &self,
+        params: InlineValueParams,
+    ) -> impl Future<Output = Result<Option<Vec<InlineValue>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/inlineCompletion` (LSP 3.18, proposed):
+    /// ghost-text completions at the cursor. Advertise via
+    /// [`crate::lsp::ServerCapabilities::inline_completion_provider`].
+    fn inline_completion(
+        &self,
+        params: InlineCompletionParams,
+    ) -> impl Future<Output = Result<Option<InlineCompletionResponse>>> + Send {
         let _ = params;
         async { Ok(None) }
     }

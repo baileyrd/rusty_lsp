@@ -215,13 +215,13 @@ mod tests {
     #[test]
     fn notebook_document_uses_camel_case() {
         let doc = NotebookDocument {
-            uri: "file:///a.ipynb".to_owned(),
+            uri: "file:///a.ipynb".into(),
             notebook_type: "jupyter-notebook".to_owned(),
             version: 1,
             metadata: None,
             cells: vec![NotebookCell {
                 kind: NotebookCellKind::Code,
-                document: "file:///a.ipynb#cell1".to_owned(),
+                document: "file:///a.ipynb#cell1".into(),
                 metadata: None,
                 execution_summary: None,
             }],
@@ -240,7 +240,7 @@ mod tests {
     fn versioned_notebook_document_identifier_round_trips() {
         let id = VersionedNotebookDocumentIdentifier {
             version: 2,
-            uri: "file:///a.ipynb".to_owned(),
+            uri: "file:///a.ipynb".into(),
         };
         let value = serde_json::to_value(id).unwrap();
         assert_eq!(value, json!({"version": 2, "uri": "file:///a.ipynb"}));
@@ -250,7 +250,7 @@ mod tests {
     fn did_open_params_use_camel_case() {
         let params = DidOpenNotebookDocumentParams {
             notebook_document: NotebookDocument {
-                uri: "file:///a.ipynb".to_owned(),
+                uri: "file:///a.ipynb".into(),
                 notebook_type: "jupyter-notebook".to_owned(),
                 version: 1,
                 metadata: None,
@@ -274,7 +274,7 @@ mod tests {
                         delete_count: 0,
                         cells: Some(vec![NotebookCell {
                             kind: NotebookCellKind::Markup,
-                            document: "file:///a.ipynb#cell2".to_owned(),
+                            document: "file:///a.ipynb#cell2".into(),
                             metadata: None,
                             execution_summary: None,
                         }]),

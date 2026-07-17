@@ -124,8 +124,8 @@ mod tests {
     #[test]
     fn file_rename_uses_camel_case() {
         let rename = FileRename {
-            old_uri: "file:///a".to_owned(),
-            new_uri: "file:///b".to_owned(),
+            old_uri: "file:///a".into(),
+            new_uri: "file:///b".into(),
         };
         let value = serde_json::to_value(&rename).unwrap();
         assert_eq!(value, json!({"oldUri": "file:///a", "newUri": "file:///b"}));

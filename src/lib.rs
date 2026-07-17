@@ -59,9 +59,17 @@
 //! | [`client`] | The [`Client`] handle for server→client messages |
 //! | [`server`] | The [`Server`] runtime: dispatch, lifecycle, cancellation |
 //! | [`documents`] | Optional managed store of open document text |
+//! | [`cancel`] | Cooperative cancellation tokens for request handlers |
+//! | [`testing`] | In-memory [`testing::TestClient`] harness for backend tests |
+//!
+//! ## Cargo features
+//!
+//! - `tcp` — [`Server::from_tcp`], serving an accepted `tokio` TCP stream.
+//! - `tracing` — wire-level instrumentation via the `tracing` crate.
 //!
 //! [lsp]: https://microsoft.github.io/language-server-protocol/
 
+pub mod cancel;
 pub mod client;
 pub mod documents;
 pub mod error;
@@ -69,10 +77,12 @@ pub mod jsonrpc;
 pub mod lsp;
 pub mod server;
 pub mod service;
+pub mod testing;
 pub mod text;
 pub mod transport;
 
-pub use client::Client;
+pub use cancel::CancelToken;
+pub use client::{Client, ProgressGuard};
 pub use documents::{Document, Documents};
 pub use error::{Error, Result};
 pub use server::Server;

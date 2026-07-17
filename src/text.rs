@@ -164,6 +164,107 @@ pub fn byte_to_utf32_column(line: &str, byte: usize) -> u32 {
     line[..end].chars().count() as u32
 }
 
+/// A precomputed table of line-start byte offsets for one snapshot of a
+/// document's text, turning position↔offset conversions from `O(document)`
+/// scans (what the free functions above do) into a binary search plus one
+/// line scan.
+///
+/// Build it once per text snapshot and reuse it across conversions — e.g.
+/// while encoding semantic tokens or mapping a batch of diagnostics — and
+/// rebuild it after the text changes:
+///
+/// ```rust
+/// use rusty_lsp::lsp::{Position, PositionEncodingKind};
+/// use rusty_lsp::text::LineIndex;
+///
+/// let text = "fn main() {\n    let π = 3.14;\n}\n";
+/// let index = LineIndex::new(text);
+/// let offset = index.position_to_offset(text, Position::new(1, 8), PositionEncodingKind::Utf16);
+/// assert_eq!(&text[offset..offset + 'π'.len_utf8()], "π");
+/// assert_eq!(
+///     index.offset_to_position(text, offset, PositionEncodingKind::Utf16),
+///     Position::new(1, 8),
+/// );
+/// ```
+///
+/// The index stores only offsets, not the text; every method takes the text
+/// it was built from, and using it with different text is a logic error
+/// (checked with a length `debug_assert`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineIndex {
+    /// Byte offset of the start of each line. `line_starts[0]` is always 0.
+    line_starts: Vec<usize>,
+    /// Total text length, for clamping and the sanity check.
+    len: usize,
+}
+
+impl LineIndex {
+    /// Build the index for one snapshot of `text`.
+    pub fn new(text: &str) -> Self {
+        let mut line_starts = vec![0];
+        line_starts.extend(
+            text.bytes()
+                .enumerate()
+                .filter_map(|(i, b)| (b == b'\n').then_some(i + 1)),
+        );
+        LineIndex {
+            line_starts,
+            len: text.len(),
+        }
+    }
+
+    /// The number of lines (always at least 1; a trailing `\n` starts one
+    /// final empty line, matching how [`Position`] addresses text).
+    pub fn line_count(&self) -> usize {
+        self.line_starts.len()
+    }
+
+    /// The byte offset where `line` starts, or `None` past the last line.
+    pub fn line_start(&self, line: u32) -> Option<usize> {
+        self.line_starts.get(line as usize).copied()
+    }
+
+    /// Convert a [`Position`] to a byte offset into `text`, measuring
+    /// `character` in `encoding`. Out-of-range lines/columns clamp, matching
+    /// [`position_to_offset_with`].
+    pub fn position_to_offset(
+        &self,
+        text: &str,
+        position: Position,
+        encoding: PositionEncodingKind,
+    ) -> usize {
+        debug_assert_eq!(text.len(), self.len, "LineIndex used with different text");
+        let Some(line_start) = self.line_start(position.line) else {
+            return self.len;
+        };
+        let line_end = self
+            .line_start(position.line + 1)
+            .map_or(self.len, |next| next - 1); // exclude the '\n'
+        line_start + column_to_byte(&text[line_start..line_end], position.character, encoding)
+    }
+
+    /// Convert a byte offset into `text` to a [`Position`], measuring
+    /// `character` in `encoding`. `offset` is clamped and floored to a
+    /// character boundary, matching [`offset_to_position_with`].
+    pub fn offset_to_position(
+        &self,
+        text: &str,
+        offset: usize,
+        encoding: PositionEncodingKind,
+    ) -> Position {
+        debug_assert_eq!(text.len(), self.len, "LineIndex used with different text");
+        let offset = floor_char_boundary(text, offset.min(self.len));
+        // The line whose start is the last one <= offset.
+        let line = self.line_starts.partition_point(|&start| start <= offset) - 1;
+        let line_start = self.line_starts[line];
+        let character = byte_to_column(&text[line_start..], offset - line_start, encoding);
+        Position {
+            line: line as u32,
+            character,
+        }
+    }
+}
+
 /// Largest character boundary `<= idx`. (Stand-in for the still-unstable
 /// `str::floor_char_boundary`.)
 fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
@@ -273,5 +374,55 @@ mod tests {
     fn floors_to_char_boundary() {
         let line = "é"; // bytes [0,1]; index 1 is mid-codepoint
         assert_eq!(byte_to_utf16_column(line, 1), 0);
+    }
+
+    #[test]
+    fn line_index_agrees_with_free_functions() {
+        let text = "let α = 1;\nfn main() {\n    // 😀\n}\n";
+        let index = LineIndex::new(text);
+        assert_eq!(index.line_count(), 5); // trailing '\n' starts a final empty line
+
+        for encoding in [
+            PositionEncodingKind::Utf8,
+            PositionEncodingKind::Utf16,
+            PositionEncodingKind::Utf32,
+        ] {
+            for line in 0..6u32 {
+                for character in 0..14u32 {
+                    let pos = Position::new(line, character);
+                    assert_eq!(
+                        index.position_to_offset(text, pos, encoding),
+                        position_to_offset_with(text, pos, encoding),
+                        "position {pos:?} with {encoding:?}"
+                    );
+                }
+            }
+            for offset in 0..=text.len() + 2 {
+                assert_eq!(
+                    index.offset_to_position(text, offset, encoding),
+                    offset_to_position_with(text, offset, encoding),
+                    "offset {offset} with {encoding:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn line_index_handles_no_trailing_newline_and_empty_text() {
+        let index = LineIndex::new("");
+        assert_eq!(index.line_count(), 1);
+        assert_eq!(
+            index.position_to_offset("", Position::new(0, 5), PositionEncodingKind::Utf16),
+            0
+        );
+
+        let text = "abc";
+        let index = LineIndex::new(text);
+        assert_eq!(index.line_count(), 1);
+        assert_eq!(
+            index.position_to_offset(text, Position::new(0, 2), PositionEncodingKind::Utf16),
+            2
+        );
+        assert_eq!(index.line_start(1), None);
     }
 }

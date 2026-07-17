@@ -21,20 +21,23 @@ use rusty_lsp::lsp::{
     DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams,
     FoldingRange, FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover,
-    HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams, Location,
-    MessageActionItem, MessageType, NotebookCell, NotebookCellKind, NotebookDocument,
-    NotebookDocumentIdentifier, Position, PrepareRenameResponse, Range, ReferenceParams,
-    Registration, RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams,
-    SemanticTokens, SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
-    SemanticTokensRangeParams, ServerCapabilities, ServerInfo, SetTraceParams, ShowDocumentParams,
-    SignatureHelp, SignatureHelpParams, SignatureInformation, SymbolInformation, SymbolKind,
-    TextDocumentPositionParams, TextDocumentSyncKind, TextEdit, TypeHierarchyItem,
-    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
-    Unregistration, VersionedNotebookDocumentIdentifier, WillSaveTextDocumentParams,
-    WorkDoneProgressBegin, WorkDoneProgressCancelParams, WorkDoneProgressEnd,
-    WorkDoneProgressReport, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
-    WorkspaceDocumentDiagnosticReport, WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport,
-    WorkspaceSymbolParams, code_action_kind,
+    HoverParams, InitializeParams, InitializeResult, InlayHint, InlayHintParams,
+    InlineCompletionItem, InlineCompletionParams, InlineCompletionResponse, InlineValue,
+    InlineValueParams, InlineValueText, LinkedEditingRangeParams, LinkedEditingRanges, Location,
+    MessageActionItem, MessageType, Moniker, MonikerKind, MonikerParams, NotebookCell,
+    NotebookCellKind, NotebookDocument, NotebookDocumentIdentifier, Position,
+    PrepareRenameResponse, Range, ReferenceParams, Registration, RenameFilesParams, RenameParams,
+    SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
+    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, ServerCapabilities,
+    ServerInfo, SetTraceParams, ShowDocumentParams, SignatureHelp, SignatureHelpParams,
+    SignatureInformation, SymbolInformation, SymbolKind, TextDocumentPositionParams,
+    TextDocumentSyncKind, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, UniquenessLevel, Unregistration,
+    Uri, VersionedNotebookDocumentIdentifier, WillSaveTextDocumentParams, WorkDoneProgressBegin,
+    WorkDoneProgressCancelParams, WorkDoneProgressEnd, WorkDoneProgressReport,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport, WorkspaceDocumentDiagnosticReport,
+    WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport, WorkspaceSymbol, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse, code_action_kind,
 };
 use rusty_lsp::{Client, Error, LanguageServer, Server};
 use serde_json::{Value, json};
@@ -48,7 +51,7 @@ use tokio::task::JoinHandle;
 /// dispatch and message paths over the wire.
 struct TestBackend {
     client: Client,
-    documents: RwLock<HashMap<String, String>>,
+    documents: RwLock<HashMap<Uri, String>>,
     client_capabilities: RwLock<Option<ClientCapabilities>>,
 }
 
@@ -157,7 +160,7 @@ impl LanguageServer for TestBackend {
             // Exercises `Client::apply_edit`.
             "test/apply_edit" => {
                 let edit = WorkspaceEdit::for_document(
-                    "file:///a".to_owned(),
+                    "file:///a".into(),
                     vec![TextEdit::new(
                         Range::new(Position::new(0, 0), Position::new(0, 1)),
                         "x",
@@ -176,6 +179,58 @@ impl LanguageServer for TestBackend {
                 self.client.refresh_inlay_hints().await?;
                 self.client.refresh_diagnostics().await?;
                 Ok(json!("refreshed"))
+            }
+            // Reports whether a `Client` notification went through, for the
+            // outbound-queue-limit test.
+            "test/log_result" => {
+                let result = self.client.log_message(MessageType::Info, "probe");
+                Ok(json!(result.is_ok()))
+            }
+            // Exercises the RAII progress guard: `begin` and a report, then
+            // the guard is dropped without `finish`, which must still send
+            // the `end` notification.
+            "test/progress_guard" => {
+                let guard = self.client.begin_progress(
+                    "guard-1",
+                    WorkDoneProgressBegin {
+                        title: "Guarded".to_owned(),
+                        ..Default::default()
+                    },
+                )?;
+                guard.report(WorkDoneProgressReport {
+                    percentage: Some(10),
+                    ..Default::default()
+                })?;
+                drop(guard); // early return / `?` path
+                Ok(json!("guard-dropped"))
+            }
+            // Exercises `Client::send_request_with_timeout` against a client
+            // that never answers: the call must fail (rather than hang) and
+            // this handler reports the error text as its result.
+            "test/config_timeout" => {
+                let err = self
+                    .client
+                    .send_request_with_timeout::<_, Value>(
+                        "workspace/configuration",
+                        json!({"items": []}),
+                        Duration::from_millis(50),
+                    )
+                    .await
+                    .expect_err("the test client never answers this");
+                Ok(json!(err.to_string()))
+            }
+            // Exercises the cooperative cancel token: a helper task (which a
+            // task abort cannot reach) watches the token and logs when it
+            // trips, while the handler itself sleeps until aborted.
+            "test/cancel_watch" => {
+                let token = rusty_lsp::cancel::current().expect("inside a request scope");
+                let client = self.client.clone();
+                tokio::spawn(async move {
+                    token.cancelled().await;
+                    let _ = client.log_message(MessageType::Info, "token-cancelled");
+                });
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                Ok(json!("never"))
             }
             // Exercises `Client::send_progress` for partial-result streaming.
             "test/partial_result" => {
@@ -207,7 +262,7 @@ impl LanguageServer for TestBackend {
                 let result = self
                     .client
                     .show_document(ShowDocumentParams {
-                        uri: "file:///a".to_owned(),
+                        uri: "file:///a".into(),
                         external: None,
                         take_focus: Some(true),
                         selection: None,
@@ -324,12 +379,15 @@ impl LanguageServer for TestBackend {
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
-    ) -> Result<Option<Vec<SymbolInformation>>> {
-        Ok(Some(vec![SymbolInformation::new(
-            format!("match:{}", params.query),
-            SymbolKind::Function,
-            marker_location("workspace-symbol"),
-        )]))
+    ) -> Result<Option<WorkspaceSymbolResponse>> {
+        Ok(Some(
+            vec![SymbolInformation::new(
+                format!("match:{}", params.query),
+                SymbolKind::Function,
+                marker_location("workspace-symbol"),
+            )]
+            .into(),
+        ))
     }
 
     async fn signature_help(&self, _params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
@@ -358,7 +416,7 @@ impl LanguageServer for TestBackend {
 
     async fn code_action_resolve(&self, action: CodeAction) -> Result<CodeAction> {
         Ok(CodeAction {
-            edit: Some(WorkspaceEdit::for_document("file:///a".to_owned(), vec![])),
+            edit: Some(WorkspaceEdit::for_document("file:///a".into(), vec![])),
             ..action
         })
     }
@@ -426,6 +484,52 @@ impl LanguageServer for TestBackend {
         params: TypeHierarchySubtypesParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
         Ok(Some(vec![type_hierarchy_item("Sub", params.item.uri)]))
+    }
+
+    async fn workspace_symbol_resolve(&self, symbol: WorkspaceSymbol) -> Result<WorkspaceSymbol> {
+        Ok(WorkspaceSymbol {
+            location: Location {
+                uri: "file:///resolved-symbol".into(),
+                range: zero_range(),
+            }
+            .into(),
+            ..symbol
+        })
+    }
+
+    async fn moniker(&self, _params: MonikerParams) -> Result<Option<Vec<Moniker>>> {
+        Ok(Some(vec![Moniker {
+            scheme: "test".to_owned(),
+            identifier: "pkg:sym".to_owned(),
+            unique: UniquenessLevel::Global,
+            kind: Some(MonikerKind::Export),
+        }]))
+    }
+
+    async fn linked_editing_range(
+        &self,
+        _params: LinkedEditingRangeParams,
+    ) -> Result<Option<LinkedEditingRanges>> {
+        Ok(Some(LinkedEditingRanges {
+            ranges: vec![zero_range(), zero_range()],
+            word_pattern: Some("\\w+".to_owned()),
+        }))
+    }
+
+    async fn inline_value(&self, params: InlineValueParams) -> Result<Option<Vec<InlineValue>>> {
+        Ok(Some(vec![InlineValue::Text(InlineValueText {
+            range: params.context.stopped_location,
+            text: "x = 42".to_owned(),
+        })]))
+    }
+
+    async fn inline_completion(
+        &self,
+        _params: InlineCompletionParams,
+    ) -> Result<Option<InlineCompletionResponse>> {
+        Ok(Some(InlineCompletionResponse::Items(vec![
+            InlineCompletionItem::new("ghost text"),
+        ])))
     }
 
     async fn set_trace(&self, params: SetTraceParams) {
@@ -564,7 +668,7 @@ impl LanguageServer for TestBackend {
 
     async fn document_link_resolve(&self, link: DocumentLink) -> Result<DocumentLink> {
         Ok(DocumentLink {
-            target: Some("file:///resolved".to_owned()),
+            target: Some("file:///resolved".into()),
             ..link
         })
     }
@@ -661,7 +765,7 @@ impl LanguageServer for TestBackend {
         Ok(WorkspaceDiagnosticReport {
             items: vec![WorkspaceDocumentDiagnosticReport::Full(
                 WorkspaceFullDocumentDiagnosticReport {
-                    uri: "file:///a.txt".to_owned(),
+                    uri: "file:///a.txt".into(),
                     version: None,
                     result_id: Some("1".to_owned()),
                     items: vec![Diagnostic::new(
@@ -741,12 +845,12 @@ fn zero_range() -> Range {
 /// handler produced a given navigation result.
 fn marker_location(marker: &str) -> Location {
     Location {
-        uri: format!("file:///{marker}"),
+        uri: format!("file:///{marker}").into(),
         range: zero_range(),
     }
 }
 
-fn call_hierarchy_item(name: &str, uri: String) -> CallHierarchyItem {
+fn call_hierarchy_item(name: &str, uri: Uri) -> CallHierarchyItem {
     CallHierarchyItem {
         name: name.to_owned(),
         kind: SymbolKind::Function,
@@ -759,7 +863,7 @@ fn call_hierarchy_item(name: &str, uri: String) -> CallHierarchyItem {
     }
 }
 
-fn type_hierarchy_item(name: &str, uri: String) -> TypeHierarchyItem {
+fn type_hierarchy_item(name: &str, uri: Uri) -> TypeHierarchyItem {
     TypeHierarchyItem {
         name: name.to_owned(),
         kind: SymbolKind::Class,
@@ -801,10 +905,19 @@ struct Harness {
 
 impl Harness {
     fn start() -> Self {
+        Harness::start_with(|server| server)
+    }
+
+    /// Start a server after applying `configure` (e.g. builder options).
+    fn start_with(
+        configure: impl FnOnce(Server<DuplexStream, DuplexStream>) -> Server<DuplexStream, DuplexStream>
+        + Send
+        + 'static,
+    ) -> Self {
         let (client_write, server_read) = tokio::io::duplex(1 << 16);
         let (server_write, client_read) = tokio::io::duplex(1 << 16);
         let serve = tokio::spawn(async move {
-            Server::new(server_read, server_write)
+            configure(Server::new(server_read, server_write))
                 .serve(TestBackend::new)
                 .await
         });
@@ -1253,13 +1366,13 @@ async fn notebook_document_sync_round_trip() {
     harness.initialize().await;
 
     let notebook = NotebookDocument {
-        uri: "file:///a.ipynb".to_owned(),
+        uri: "file:///a.ipynb".into(),
         notebook_type: "jupyter-notebook".to_owned(),
         version: 1,
         metadata: None,
         cells: vec![NotebookCell {
             kind: NotebookCellKind::Code,
-            document: "file:///a.ipynb#cell1".to_owned(),
+            document: "file:///a.ipynb#cell1".into(),
             metadata: None,
             execution_summary: None,
         }],
@@ -1293,7 +1406,7 @@ async fn notebook_document_sync_round_trip() {
             json!({
                 "notebookDocument": VersionedNotebookDocumentIdentifier {
                     version: 2,
-                    uri: "file:///a.ipynb".to_owned(),
+                    uri: "file:///a.ipynb".into(),
                 },
                 "change": {},
             }),
@@ -1310,7 +1423,7 @@ async fn notebook_document_sync_round_trip() {
     harness
         .notify(
             "notebookDocument/didSave",
-            json!({"notebookDocument": NotebookDocumentIdentifier { uri: "file:///a.ipynb".to_owned() }}),
+            json!({"notebookDocument": NotebookDocumentIdentifier { uri: "file:///a.ipynb".into() }}),
         )
         .await;
     let note = harness.recv_notification("window/logMessage").await;
@@ -1325,7 +1438,7 @@ async fn notebook_document_sync_round_trip() {
         .notify(
             "notebookDocument/didClose",
             json!({
-                "notebookDocument": NotebookDocumentIdentifier { uri: "file:///a.ipynb".to_owned() },
+                "notebookDocument": NotebookDocumentIdentifier { uri: "file:///a.ipynb".into() },
                 "cellTextDocuments": [{"uri": "file:///a.ipynb#cell1"}],
             }),
         )
@@ -1619,7 +1732,9 @@ async fn inlay_hint_and_resolve_round_trip() {
 async fn unknown_method_yields_method_not_found() {
     let mut harness = Harness::start();
     harness.initialize().await;
-    let id = harness.request("textDocument/moniker", json!({})).await;
+    let id = harness
+        .request("textDocument/definitelyNotAMethod", json!({}))
+        .await;
     let response = harness.recv_response(&id).await;
     assert_eq!(response.error.expect("error").code, codes::METHOD_NOT_FOUND);
 }
@@ -2202,4 +2317,247 @@ async fn eof_stops_the_server() {
         .expect("server should stop on EOF")
         .expect("server task did not panic");
     assert!(outcome.is_ok());
+}
+
+#[tokio::test]
+async fn moniker_and_linked_editing_range_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/moniker",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let monikers = response.result.expect("result");
+    assert_eq!(monikers[0]["scheme"], json!("test"));
+    assert_eq!(monikers[0]["unique"], json!("global"));
+    assert_eq!(monikers[0]["kind"], json!("export"));
+
+    let id = harness
+        .request(
+            "textDocument/linkedEditingRange",
+            position_params("file:///a.txt", 0, 0),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let ranges = response.result.expect("result");
+    assert_eq!(ranges["ranges"].as_array().expect("array").len(), 2);
+    assert_eq!(ranges["wordPattern"], json!("\\w+"));
+}
+
+#[tokio::test]
+async fn inline_value_and_inline_completion_round_trip() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "textDocument/inlineValue",
+            json!({
+                "textDocument": {"uri": "file:///a.txt"},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 9, "character": 0}},
+                "context": {
+                    "frameId": 7,
+                    "stoppedLocation": {"start": {"line": 3, "character": 0}, "end": {"line": 3, "character": 5}},
+                },
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let values = response.result.expect("result");
+    assert_eq!(values[0]["text"], json!("x = 42"));
+    assert_eq!(values[0]["range"]["start"]["line"], json!(3));
+
+    let mut params = position_params("file:///a.txt", 0, 4);
+    params["context"] = json!({"triggerKind": 2});
+    let id = harness
+        .request("textDocument/inlineCompletion", params)
+        .await;
+    let response = harness.recv_response(&id).await;
+    let items = response.result.expect("result");
+    assert_eq!(items[0]["insertText"], json!("ghost text"));
+}
+
+#[tokio::test]
+async fn workspace_symbol_resolve_fills_in_the_location() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness
+        .request(
+            "workspaceSymbol/resolve",
+            json!({
+                "name": "lazy",
+                "kind": 12,
+                "location": {"uri": "file:///a.txt"},
+            }),
+        )
+        .await;
+    let response = harness.recv_response(&id).await;
+    let symbol = response.result.expect("result");
+    assert_eq!(symbol["name"], json!("lazy"));
+    assert_eq!(symbol["location"]["uri"], json!("file:///resolved-symbol"));
+    assert_eq!(symbol["location"]["range"]["start"]["line"], json!(0));
+}
+
+#[tokio::test]
+async fn progress_guard_sends_end_even_when_dropped() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/progress_guard", json!({})).await;
+
+    // begin, report, then the end injected by the guard's Drop.
+    let begin = harness.recv_notification("$/progress").await;
+    assert_eq!(
+        begin.params.expect("params")["value"]["kind"],
+        json!("begin")
+    );
+    let report = harness.recv_notification("$/progress").await;
+    assert_eq!(
+        report.params.expect("params")["value"]["percentage"],
+        json!(10)
+    );
+    let end = harness.recv_notification("$/progress").await;
+    let end_params = end.params.expect("params");
+    assert_eq!(end_params["token"], json!("guard-1"));
+    assert_eq!(end_params["value"]["kind"], json!("end"));
+
+    let response = harness.recv_response(&id).await;
+    assert_eq!(response.result.expect("result"), json!("guard-dropped"));
+}
+
+#[tokio::test]
+async fn send_request_with_timeout_gives_up_and_cancels() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/config_timeout", json!({})).await;
+
+    // The handler sends workspace/configuration; deliberately never answer.
+    let config_request = harness.recv_request("workspace/configuration").await;
+
+    // The timeout fires: the client is told the server no longer wants the
+    // answer, and the handler's own response reports the timeout error. The
+    // cancel notification is written first, so read in wire order.
+    let cancel = tokio::time::timeout(
+        Duration::from_secs(5),
+        harness.recv_notification("$/cancelRequest"),
+    )
+    .await
+    .expect("timeout must fire promptly");
+    assert_eq!(
+        cancel.params.expect("params")["id"],
+        serde_json::to_value(&config_request.id).unwrap()
+    );
+
+    let response = tokio::time::timeout(Duration::from_secs(5), harness.recv_response(&id))
+        .await
+        .expect("handler response after timeout");
+    let text = response.result.expect("result");
+    let text = text.as_str().expect("string");
+    assert!(text.contains("no response"), "was: {text}");
+}
+
+#[tokio::test]
+async fn cancel_token_reaches_work_an_abort_cannot() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/cancel_watch", json!({})).await;
+    let RequestId::Number(numeric_id) = id.clone() else {
+        unreachable!("ids are numeric in this harness");
+    };
+    // Give the handler a moment to install its token watcher.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    harness
+        .notify("$/cancelRequest", json!({ "id": numeric_id }))
+        .await;
+
+    // Expect both the cancellation response and the token watcher's log
+    // message, in whichever order they land on the wire.
+    let mut saw_response = false;
+    let mut saw_log = false;
+    while !(saw_response && saw_log) {
+        let message = tokio::time::timeout(Duration::from_secs(5), harness.recv())
+            .await
+            .expect("cancellation effects should arrive promptly");
+        match message {
+            Message::Response(response) if response.id.as_ref() == Some(&id) => {
+                assert_eq!(
+                    response.error.expect("error").code,
+                    codes::REQUEST_CANCELLED
+                );
+                saw_response = true;
+            }
+            Message::Notification(note) if note.method == "window/logMessage" => {
+                assert_eq!(
+                    note.params.expect("params")["message"],
+                    json!("token-cancelled")
+                );
+                saw_log = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn requests_complete_under_a_concurrency_cap() {
+    let mut harness = Harness::start_with(|server| server.with_max_concurrent_requests(1));
+    harness.initialize().await;
+
+    // With a cap of 1, several concurrent requests must still all answer.
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        ids.push(
+            harness
+                .request("textDocument/hover", position_params("file:///x", 0, 0))
+                .await,
+        );
+    }
+    // Responses may land in any order; gather until every id is answered.
+    let mut remaining: Vec<RequestId> = ids;
+    while !remaining.is_empty() {
+        let message = tokio::time::timeout(Duration::from_secs(5), harness.recv())
+            .await
+            .expect("capped requests still complete");
+        if let Message::Response(response) = message {
+            let id = response.id.clone().expect("response id");
+            assert!(response.error.is_none());
+            remaining.retain(|r| r != &id);
+        }
+    }
+}
+
+#[tokio::test]
+async fn uris_are_normalized_across_spellings() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+    // Open with an uppercase scheme; the store normalizes the key.
+    harness.open("FILE:///n.txt", "hello hello").await;
+
+    let id = harness
+        .request("textDocument/hover", position_params("file:///n.txt", 0, 0))
+        .await;
+    let response = harness.recv_response(&id).await;
+    let result = response.result.expect("result");
+    assert_eq!(result["contents"]["value"], json!("hello x2"));
+}
+
+#[tokio::test]
+async fn outbound_queue_limit_rejects_client_traffic_but_not_responses() {
+    // A limit of 0 makes every Client-originated send fail immediately,
+    // while protocol responses still flow.
+    let mut harness = Harness::start_with(|server| server.with_outbound_queue_limit(0));
+    harness.initialize().await;
+
+    let id = harness.request("test/log_result", json!({})).await;
+    let response = harness.recv_response(&id).await;
+    // The response itself arrived (not subject to the cap), and it reports
+    // that the notification was rejected.
+    assert_eq!(response.result.expect("result"), json!(false));
 }
