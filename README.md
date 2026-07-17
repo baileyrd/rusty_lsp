@@ -327,6 +327,12 @@ over in-memory pipes: capability negotiation, lifecycle rejection, diagnostics
 publishing, hover/completion dispatch, invalid-params and method-not-found
 errors, request cancellation, and clean shutdown/exit/EOF teardown.
 
+## Release notes
+
+See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the story behind each
+release, or [`CHANGELOG.md`](CHANGELOG.md) for the entry-by-entry technical
+log.
+
 ## License
 
 Dual-licensed under `MIT OR Apache-2.0` (see the `license` field in

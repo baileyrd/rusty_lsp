@@ -3,6 +3,8 @@
 All notable changes to `rusty_lsp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (0.x: minor bumps may break).
+See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the narrative version of
+each release.
 
 ## [0.6.2] — 2026-07-17
 
