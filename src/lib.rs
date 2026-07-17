@@ -69,6 +69,8 @@
 //!
 //! [lsp]: https://microsoft.github.io/language-server-protocol/
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod cancel;
 pub mod client;
 pub mod documents;

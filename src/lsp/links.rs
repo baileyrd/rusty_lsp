@@ -2,6 +2,7 @@
 //! types.
 
 use super::base::{Range, TextDocumentIdentifier, Uri};
+use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -11,6 +12,10 @@ use serde_json::Value;
 pub struct DocumentLinkParams {
     /// The document to find links in.
     pub text_document: TextDocumentIdentifier,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// A clickable link anchored to a document range.
@@ -46,6 +51,10 @@ pub struct DocumentLinkOptions {
 pub struct DocumentColorParams {
     /// The document to find color literals in.
     pub text_document: TextDocumentIdentifier,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// An RGBA color, each component normalised to `0.0..=1.0`.
@@ -81,6 +90,10 @@ pub struct ColorPresentationParams {
     pub color: Color,
     /// The range of the color literal being edited.
     pub range: Range,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// One way to present/write a [`Color`] in the source language (e.g. as a

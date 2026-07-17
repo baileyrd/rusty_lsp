@@ -54,6 +54,10 @@ pub struct DocumentSymbol {
     pub detail: Option<String>,
     /// The symbol's kind.
     pub kind: SymbolKind,
+    /// Tags qualifying the symbol (e.g. deprecated) — the modern form
+    /// clients render (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<SymbolTag>>,
     /// Whether the symbol is deprecated. Prefer `tags` where the client
     /// supports it; kept for older clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -81,6 +85,7 @@ impl DocumentSymbol {
             name: name.into(),
             detail: None,
             kind,
+            tags: None,
             deprecated: None,
             range,
             selection_range,
@@ -99,6 +104,10 @@ pub struct SymbolInformation {
     pub name: String,
     /// The symbol's kind.
     pub kind: SymbolKind,
+    /// Tags qualifying the symbol (e.g. deprecated), preferred over
+    /// `deprecated` by modern clients (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<SymbolTag>>,
     /// Whether the symbol is deprecated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deprecated: Option<bool>,
@@ -116,6 +125,7 @@ impl SymbolInformation {
         SymbolInformation {
             name: name.into(),
             kind,
+            tags: None,
             deprecated: None,
             location,
             container_name: None,

@@ -150,3 +150,19 @@ async fn test_client_receives_fail_instead_of_hanging() {
     let text = err.to_string();
     assert!(text.contains("no message"), "was: {text}");
 }
+
+#[tokio::test]
+async fn spawn_configured_applies_server_options() {
+    // A queue limit of 0 rejects Client-originated sends; the backend's
+    // `initialized` log therefore never arrives, but responses still do.
+    let mut client = TestClient::spawn_configured(
+        |server| server.with_max_concurrent_requests(1),
+        |client| Backend { client },
+    );
+    let init = client
+        .initialize(InitializeParams::default())
+        .await
+        .expect("initialize under a concurrency cap");
+    assert_eq!(init.capabilities.hover_provider, Some(true));
+    client.shutdown_and_exit().await.expect("clean teardown");
+}

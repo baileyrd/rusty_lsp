@@ -85,6 +85,7 @@ pub struct Server<R, W> {
     max_concurrent_requests: Option<usize>,
     outbound_queue_limit: Option<usize>,
     teardown_grace: std::time::Duration,
+    shutdown_signal: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
 }
 
 /// How long teardown waits for queued notification handlers before
@@ -102,6 +103,7 @@ impl Server<tokio::io::Stdin, tokio::io::Stdout> {
 }
 
 #[cfg(feature = "tcp")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tcp")))]
 impl Server<tokio::net::tcp::OwnedReadHalf, tokio::net::tcp::OwnedWriteHalf> {
     /// Build a server over an accepted TCP connection (requires the `tcp`
     /// feature), for clients that connect over a socket instead of spawning
@@ -132,6 +134,7 @@ impl Server<tokio::net::tcp::OwnedReadHalf, tokio::net::tcp::OwnedWriteHalf> {
 /// Runs until `accept` fails; a connection whose serve loop errors is
 /// logged nowhere and simply ends (each connection is independent).
 #[cfg(feature = "tcp")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tcp")))]
 pub async fn serve_tcp<B, F>(listener: tokio::net::TcpListener, factory: F) -> Result<()>
 where
     B: LanguageServer,
@@ -162,7 +165,24 @@ where
             max_concurrent_requests: None,
             outbound_queue_limit: None,
             teardown_grace: DEFAULT_TEARDOWN_GRACE,
+            shutdown_signal: None,
         }
+    }
+
+    /// Stop serving when `signal` resolves, going through the normal
+    /// teardown (in-flight aborts, notification grace) and returning
+    /// `Ok(())` — an external termination path the wire cannot provide.
+    /// Typical signals: `tokio::signal::ctrl_c()`, or a watchdog future
+    /// that resolves when the parent editor process
+    /// ([`InitializeParams::process_id`](crate::lsp::InitializeParams::process_id))
+    /// has exited.
+    #[must_use]
+    pub fn with_shutdown_signal(
+        mut self,
+        signal: impl Future<Output = ()> + Send + 'static,
+    ) -> Self {
+        self.shutdown_signal = Some(Box::pin(signal));
+        self
     }
 
     /// How long teardown waits for still-queued notification handlers to
@@ -220,6 +240,7 @@ where
             max_concurrent_requests,
             outbound_queue_limit,
             teardown_grace,
+            shutdown_signal,
         } = self;
 
         let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
@@ -230,11 +251,17 @@ where
         let request_permits = max_concurrent_requests.map(|limit| Arc::new(Semaphore::new(limit)));
 
         // Single writer task: serializes all outbound traffic and is the sole
-        // owner of the write half. It ends once every sender is dropped.
+        // owner of the write half. It ends once every sender is dropped — or
+        // on a write error, which it signals so the read loop tears down
+        // instead of serving a half-closed connection until reader EOF.
+        let (writer_dead_tx, writer_dead) = watch::channel(false);
         let writer_task = tokio::spawn(async move {
             while let Some(message) = out_rx.recv().await {
                 queue_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                transport::write_message(&mut writer, &message).await?;
+                if let Err(err) = transport::write_message(&mut writer, &message).await {
+                    let _ = writer_dead_tx.send(true);
+                    return Err(err);
+                }
             }
             Ok::<(), Error>(())
         });
@@ -245,6 +272,8 @@ where
             outbound,
             request_permits,
             teardown_grace,
+            shutdown_signal,
+            writer_dead,
             backend,
         )
         .await;
@@ -252,7 +281,9 @@ where
         // `run_loop` has dropped its senders and aborted in-flight handlers on
         // return; await the writer so buffered output is flushed before exit.
         match writer_task.await {
-            Ok(write_result) => result.and(write_result),
+            // A writer failure carries the underlying io cause and takes
+            // precedence over the loop's derived teardown error.
+            Ok(write_result) => write_result.and(result),
             Err(join_err) if join_err.is_panic() => {
                 Err(Error::internal(format!("writer task panicked: {join_err}")))
             }
@@ -262,12 +293,15 @@ where
 }
 
 /// The message loop. Owns the loop-side handles so they drop on return.
+#[allow(clippy::too_many_arguments)]
 async fn run_loop<R, B>(
     reader: R,
     client: Client,
     out_tx: Outbound,
     request_permits: Option<Arc<Semaphore>>,
     teardown_grace: std::time::Duration,
+    mut shutdown_signal: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    mut writer_dead: watch::Receiver<bool>,
     backend: Arc<B>,
 ) -> Result<()>
 where
@@ -324,7 +358,22 @@ where
     let mut notes_enqueued = 0u64;
 
     let loop_result = loop {
-        let message = match transport::read_message(&mut reader).await {
+        let read = tokio::select! {
+            result = transport::read_message(&mut reader) => result,
+            // The writer failed: the client stopped reading (or the pipe
+            // broke). Responses can no longer be delivered, so serving on
+            // would be a zombie phase; tear down now. The writer task's own
+            // error carries the underlying cause and wins in `serve`.
+            _ = writer_dead.changed() => {
+                break Err(Error::protocol(
+                    "connection write side failed; tearing down",
+                ));
+            }
+            // External shutdown (ctrl-c, parent-process watchdog): a clean
+            // stop through the normal teardown.
+            _ = poll_shutdown_signal(&mut shutdown_signal) => break Ok(()),
+        };
+        let message = match read {
             Ok(Some(message)) => message,
             Ok(None) => break Ok(()), // clean EOF at a frame boundary
             // The frame itself was read intact (exactly `Content-Length` bytes
@@ -493,6 +542,15 @@ struct QueuedNotification {
     seq: u64,
     method: String,
     params: Option<Value>,
+}
+
+/// Await the configured external shutdown signal, or pend forever when
+/// none was configured.
+async fn poll_shutdown_signal(signal: &mut Option<Pin<Box<dyn Future<Output = ()> + Send>>>) {
+    match signal {
+        Some(signal) => signal.as_mut().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// Wait until the notification worker has finished every notification up to

@@ -2,6 +2,7 @@
 
 use super::base::{Range, TextDocumentIdentifier};
 use super::code_action::Command;
+use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -11,6 +12,10 @@ use serde_json::Value;
 pub struct CodeLensParams {
     /// The document to compute code lenses for.
     pub text_document: TextDocumentIdentifier,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// An inline, actionable annotation anchored to a document range (e.g. a

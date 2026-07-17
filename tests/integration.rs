@@ -191,6 +191,14 @@ impl LanguageServer for TestBackend {
                 self.client.refresh_diagnostics().await?;
                 Ok(json!("refreshed"))
             }
+            // Exercises the log-level shortcut helpers.
+            "test/log_levels" => {
+                self.client.log_debug("d")?;
+                self.client.log_info("i")?;
+                self.client.log_warning("w")?;
+                self.client.log_error("e")?;
+                Ok(json!("logged"))
+            }
             // Reports whether a `Client` notification went through, for the
             // outbound-queue-limit test.
             "test/log_result" => {
@@ -2720,4 +2728,112 @@ async fn serve_tcp_accepts_multiple_connections() {
             json!("test-server")
         );
     }
+}
+
+#[tokio::test]
+async fn writer_failure_tears_the_connection_down() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // Close the client's read end: the server can no longer deliver output.
+    let Harness {
+        mut to_server,
+        from_server,
+        serve,
+        ..
+    } = harness;
+    drop(from_server);
+    // Trigger outbound traffic (didOpen publishes diagnostics), which makes
+    // the writer fail; the loop must notice and stop rather than serving a
+    // half-closed connection until reader EOF.
+    rusty_lsp::transport::write_message(
+        &mut to_server,
+        &Message::Notification(Notification {
+            method: "textDocument/didOpen".to_owned(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///dead.txt",
+                    "languageId": "plaintext",
+                    "version": 1,
+                    "text": "TODO",
+                }
+            })),
+        }),
+    )
+    .await
+    .expect("client-to-server side is still open");
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), serve)
+        .await
+        .expect("writer failure must end the loop promptly")
+        .expect("server task did not panic");
+    assert!(outcome.is_err(), "a failed write side is not a clean stop");
+}
+
+#[tokio::test]
+async fn shutdown_signal_stops_the_server_cleanly() {
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut harness = Harness::start_with(move |server| {
+        server.with_shutdown_signal(async move {
+            let _ = stop_rx.await;
+        })
+    });
+    harness.initialize().await;
+
+    // The server runs normally until the signal fires...
+    let id = harness
+        .request("textDocument/hover", position_params("file:///s.txt", 0, 0))
+        .await;
+    let response = harness.recv_response(&id).await;
+    assert!(response.error.is_none());
+
+    // ... then winds down through the normal teardown with Ok(()).
+    stop_tx.send(()).expect("server still running");
+    let outcome = tokio::time::timeout(Duration::from_secs(5), harness.serve)
+        .await
+        .expect("signal must stop the server promptly")
+        .expect("server task did not panic");
+    assert!(outcome.is_ok(), "external shutdown is a clean stop");
+}
+
+#[tokio::test]
+async fn log_level_shortcuts_map_to_message_types() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    let id = harness.request("test/log_levels", json!({})).await;
+    let mut seen = Vec::new();
+    while seen.len() < 4 {
+        let note = harness.recv_notification("window/logMessage").await;
+        let params = note.params.expect("params");
+        seen.push((params["type"].clone(), params["message"].clone()));
+    }
+    assert_eq!(
+        seen,
+        vec![
+            (json!(5), json!("d")), // Debug
+            (json!(3), json!("i")), // Info
+            (json!(2), json!("w")), // Warning
+            (json!(1), json!("e")), // Error
+        ]
+    );
+    let response = harness.recv_response(&id).await;
+    assert!(response.error.is_none());
+}
+
+#[tokio::test]
+async fn signature_help_accepts_a_work_done_token() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // Previously the token field would have been silently dropped by serde;
+    // now it is a typed field, and the request still round-trips.
+    let mut params = position_params("file:///a.txt", 0, 0);
+    params["workDoneToken"] = json!("sig-progress-1");
+    let id = harness.request("textDocument/signatureHelp", params).await;
+    let response = harness.recv_response(&id).await;
+    assert_eq!(
+        response.result.expect("result")["signatures"][0]["label"],
+        json!("fn foo(x: i32)")
+    );
 }

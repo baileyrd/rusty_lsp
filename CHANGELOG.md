@@ -4,6 +4,36 @@ All notable changes to `rusty_lsp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (0.x: minor bumps may break).
 
+## [0.6.0] — 2026-07-17
+
+### Added
+
+- The remaining `workDone`/`partialResult` mixins: `SignatureHelpParams`,
+  `CodeLensParams`, `DocumentLinkParams`, `DocumentColorParams`,
+  `ColorPresentationParams`, `InlayHintParams`, and the
+  `SemanticTokens*Params` family — the mixin sweep is complete.
+- `DocumentSymbol::tags` and `SymbolInformation::tags` (the modern
+  deprecation form).
+- `Server::with_shutdown_signal(future)`: external termination (ctrl-c,
+  parent-process watchdogs) through the normal teardown path.
+- `TestClient::spawn_configured(configure, build)`: exercise `Server`
+  builder options from the exported harness.
+- `Client::log`/`log_debug`/`log_info`/`log_warning`/`log_error`
+  shortcuts.
+- `Uri::parent()` and `Uri::join(segment)` path helpers
+  (percent-encoding-aware).
+- A `fuzz/` crate with cargo-fuzz targets (frame parser, message
+  classifier, `Uri`, `apply_edits`) and a weekly fuzz workflow.
+- Criterion benchmarks (`cargo bench`): `LineIndex` vs the free
+  conversion functions, batch edit application, framing round trips.
+- Feature-gated APIs are labeled on docs.rs via `doc_cfg`.
+
+### Fixed
+
+- A failed writer (client stopped reading; broken pipe) now tears the
+  connection down promptly instead of serving into a void until reader
+  EOF; the writer's io error is what `serve` returns.
+
 ## [0.5.0] — 2026-07-17
 
 ### Added

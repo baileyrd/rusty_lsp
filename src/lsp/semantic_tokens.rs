@@ -9,6 +9,7 @@
 //! keyed by their own token/modifier tables.
 
 use super::base::{Range, TextDocumentIdentifier};
+use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
 
 /// Declares the token types and modifiers a server's semantic-token indices
@@ -31,6 +32,10 @@ pub struct SemanticTokensLegend {
 pub struct SemanticTokensParams {
     /// The document to compute tokens for.
     pub text_document: TextDocumentIdentifier,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// Parameters of `textDocument/semanticTokens/full/delta`.
@@ -42,6 +47,10 @@ pub struct SemanticTokensDeltaParams {
     /// The [`SemanticTokens::result_id`] of the previous full result this
     /// delta is relative to.
     pub previous_result_id: String,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// Parameters of `textDocument/semanticTokens/range`.
@@ -52,6 +61,10 @@ pub struct SemanticTokensRangeParams {
     pub text_document: TextDocumentIdentifier,
     /// The range to compute tokens within.
     pub range: Range,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
+    #[serde(flatten)]
+    pub partial_result: PartialResultParams,
 }
 
 /// The full set of semantic tokens for a document (or range).
