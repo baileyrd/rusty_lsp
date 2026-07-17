@@ -128,6 +128,13 @@ impl LanguageServer for TestBackend {
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 Ok(json!("slept"))
             }
+            // Deliberately has no `.await` inside it at all: its future
+            // resolves on the very first poll. Used to reproduce the
+            // spawn-vs-register race in `spawn_request` (a task with no
+            // real suspension point can run to completion, on another
+            // worker thread, before the spawning thread finishes
+            // registering it in `in_flight`).
+            "test/trivial" => Ok(json!("ok")),
             // A deliberately panicking method, used to test that a handler
             // panic still yields a response instead of hanging the request
             // forever. The panic backtrace printed by this test is expected.
@@ -2836,4 +2843,54 @@ async fn signature_help_accepts_a_work_done_token() {
         response.result.expect("result")["signatures"][0]["label"],
         json!("fn foo(x: i32)")
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_trivial_requests_are_never_silently_dropped() {
+    let mut harness = Harness::start();
+    harness.initialize().await;
+
+    // Fire bursts of requests whose handler has no internal `.await` (so a
+    // spawned task can complete on its very first poll) without waiting
+    // between sends, across enough rounds and real OS threads to give the
+    // scheduler room to actually interleave. Regression test for a race in
+    // `spawn_request` where the handler task, running on another worker
+    // thread, could reach completion and remove-from-`in_flight` before
+    // the spawning thread finished inserting its own bookkeeping entry —
+    // finding nothing to remove, concluding a cancel got there first, and
+    // silently dropping the response. Every request here must still be
+    // answered.
+    for round in 0..20 {
+        let mut ids = Vec::with_capacity(200);
+        for _ in 0..200 {
+            ids.push(harness.request("test/trivial", json!({})).await);
+        }
+        // Concurrent handlers may answer out of send order, so collect by
+        // id set rather than awaiting each id in turn (which would discard
+        // any response that arrives ahead of the one currently awaited).
+        let expected: std::collections::HashSet<_> = ids.into_iter().collect();
+        let mut seen = std::collections::HashSet::new();
+        while seen.len() < expected.len() {
+            let message = tokio::time::timeout(Duration::from_secs(5), harness.recv())
+                .await
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "round {round}: only {}/{} responses arrived",
+                        seen.len(),
+                        expected.len()
+                    )
+                });
+            if let Message::Response(response) = message
+                && let Some(id) = response.id.clone()
+            {
+                assert!(
+                    response.error.is_none(),
+                    "round {round}: {id:?} errored: {:?}",
+                    response.error
+                );
+                seen.insert(id);
+            }
+        }
+        assert_eq!(seen, expected, "round {round}: response id set mismatch");
+    }
 }

@@ -52,7 +52,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Semaphore, mpsc, watch};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 
 /// Bookkeeping for one running request handler.
@@ -610,7 +610,21 @@ fn spawn_request<B: LanguageServer>(
     let permits = request_permits.clone();
     let notes_done = notes_done.clone();
 
+    // Gate the task's start on this being sent, so it cannot observe (or
+    // mutate) `in_flight` before the entry below is inserted. Without this,
+    // a handler with no real `.await` inside it (the common case for a
+    // trivial or already-cached result) can run to completion on another
+    // worker thread and reach the `remove` below before the spawning
+    // thread reaches `insert` — finding nothing to remove, concluding a
+    // cancel beat it there, and silently dropping the response. `tokio::
+    // spawn` schedules eagerly on a multi-threaded runtime, so this is not
+    // a theoretical race: it reproduces under real concurrent load.
+    let (start_tx, start_rx) = oneshot::channel::<()>();
+
     let join = tokio::spawn(cancel::scope(task_token, async move {
+        if start_rx.await.is_err() {
+            return; // The spawning thread dropped without registering us.
+        }
         // Wait for every notification received before this request to be
         // applied, so the handler observes document state as if dispatch
         // were fully sequential.
@@ -654,6 +668,10 @@ fn spawn_request<B: LanguageServer>(
             token,
         },
     );
+    // Only now may the task proceed — its bookkeeping is registered, so
+    // whichever of {the task finishing, a `$/cancelRequest`} comes first
+    // will correctly find (and claim) the entry.
+    let _ = start_tx.send(());
 }
 
 /// A future adapter that catches panics from the inner future's `poll`,
