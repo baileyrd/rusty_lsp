@@ -102,3 +102,113 @@ mod tests {
         assert!(value.get("unregistrations").is_none());
     }
 }
+
+/// A filter selecting documents by language, URI scheme, and/or glob
+/// pattern. At least one field should be set.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DocumentFilter {
+    /// Match documents with this language id (e.g. `"rust"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// Match documents with this URI scheme (e.g. `"file"`, `"untitled"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheme: Option<String>,
+    /// Match documents whose path matches this glob (e.g. `"**/*.toml"`;
+    /// `*`, `**`, `?`, `{a,b}`, `[...]` per the spec).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+}
+
+impl DocumentFilter {
+    /// Filter by language id alone.
+    pub fn language(language: impl Into<String>) -> Self {
+        DocumentFilter {
+            language: Some(language.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Filter by glob pattern alone.
+    pub fn pattern(pattern: impl Into<String>) -> Self {
+        DocumentFilter {
+            pattern: Some(pattern.into()),
+            ..Default::default()
+        }
+    }
+}
+
+/// The set of documents a dynamic registration applies to: a document
+/// matches if any filter matches.
+pub type DocumentSelector = Vec<DocumentFilter>;
+
+/// The registration options common to all `textDocument/*` methods: which
+/// documents the registration applies to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentRegistrationOptions {
+    /// The documents the registration applies to. `None` falls back to the
+    /// selector the client provides on the server's behalf.
+    pub document_selector: Option<DocumentSelector>,
+}
+
+impl Registration {
+    /// Build a registration scoped to the documents matching `selector`,
+    /// the common case for dynamic `textDocument/*` registrations:
+    ///
+    /// ```rust
+    /// use rusty_lsp::lsp::{DocumentFilter, Registration};
+    ///
+    /// let registration = Registration::for_documents(
+    ///     "fmt-toml",
+    ///     "textDocument/formatting",
+    ///     vec![DocumentFilter::language("toml")],
+    /// );
+    /// ```
+    pub fn for_documents(
+        id: impl Into<String>,
+        method: impl Into<String>,
+        selector: DocumentSelector,
+    ) -> Self {
+        let options = TextDocumentRegistrationOptions {
+            document_selector: Some(selector),
+        };
+        Registration {
+            id: id.into(),
+            method: method.into(),
+            register_options: Some(
+                serde_json::to_value(options).expect("registration options serialize"),
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn for_documents_builds_a_document_selector() {
+        let registration = Registration::for_documents(
+            "fmt-1",
+            "textDocument/formatting",
+            vec![
+                DocumentFilter::language("toml"),
+                DocumentFilter::pattern("**/*.lock"),
+            ],
+        );
+        assert_eq!(
+            serde_json::to_value(&registration).unwrap(),
+            json!({
+                "id": "fmt-1",
+                "method": "textDocument/formatting",
+                "registerOptions": {
+                    "documentSelector": [
+                        {"language": "toml"},
+                        {"pattern": "**/*.lock"},
+                    ],
+                },
+            })
+        );
+    }
+}

@@ -250,6 +250,9 @@ pub struct ServerCapabilities {
     /// Whether the server provides find-references support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub references_provider: Option<bool>,
+    /// Whether the server provides document-highlight support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_highlight_provider: Option<bool>,
     /// Whether the server provides document-symbol support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_symbol_provider: Option<bool>,

@@ -13,7 +13,8 @@
 //! Lines are delimited by `\n`; a `\r` from a `\r\n` sequence is treated as part
 //! of the preceding line's content, matching [`str::split`]`('\n')`.
 
-use crate::lsp::{Position, PositionEncodingKind};
+use crate::error::{Error, Result};
+use crate::lsp::{Position, PositionEncodingKind, TextEdit};
 
 /// Convert an LSP [`Position`] to a byte offset into `text`, assuming UTF-16
 /// positions (the base-spec default). See [`position_to_offset_with`] for
@@ -162,6 +163,62 @@ pub fn utf32_column_to_byte(line: &str, column: u32) -> usize {
 pub fn byte_to_utf32_column(line: &str, byte: usize) -> u32 {
     let end = floor_char_boundary(line, byte.min(line.len()));
     line[..end].chars().count() as u32
+}
+
+/// Apply a set of [`TextEdit`]s to `text`, assuming UTF-16 positions (the
+/// base-spec default). See [`apply_edits_with`] for other encodings.
+///
+/// Useful for tests asserting a formatting/rename result, and for any tool
+/// consuming the edits a server produced.
+pub fn apply_edits(text: &str, edits: &[TextEdit]) -> Result<String> {
+    apply_edits_with(text, edits, PositionEncodingKind::Utf16)
+}
+
+/// Apply a set of [`TextEdit`]s to `text`, measuring positions in
+/// `encoding`.
+///
+/// Edits may be given in any order; they are applied as one atomic batch
+/// against the *original* text (as the spec requires — ranges never refer
+/// to partially-edited content). Multiple inserts at the same position keep
+/// their given order. Overlapping edits are an error.
+pub fn apply_edits_with(
+    text: &str,
+    edits: &[TextEdit],
+    encoding: PositionEncodingKind,
+) -> Result<String> {
+    let index = LineIndex::new(text);
+    // Resolve to byte ranges, remembering input order to keep same-position
+    // inserts stable and to detect overlap after sorting.
+    let mut resolved: Vec<(usize, usize, usize)> = edits
+        .iter()
+        .enumerate()
+        .map(|(order, edit)| {
+            let start = index.position_to_offset(text, edit.range.start, encoding);
+            let end = index.position_to_offset(text, edit.range.end, encoding);
+            if start > end {
+                return Err(Error::invalid_params(format!(
+                    "text edit {order} has end before start"
+                )));
+            }
+            Ok((start, end, order))
+        })
+        .collect::<Result<_>>()?;
+    resolved.sort_by_key(|&(start, _, order)| (start, order));
+    for pair in resolved.windows(2) {
+        if pair[1].0 < pair[0].1 {
+            return Err(Error::invalid_params("text edits overlap"));
+        }
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for &(start, end, order) in &resolved {
+        out.push_str(&text[cursor..start]);
+        out.push_str(&edits[order].new_text);
+        cursor = end;
+    }
+    out.push_str(&text[cursor..]);
+    Ok(out)
 }
 
 /// A precomputed table of line-start byte offsets for one snapshot of a
@@ -424,5 +481,71 @@ mod tests {
             2
         );
         assert_eq!(index.line_start(1), None);
+    }
+}
+
+#[cfg(test)]
+mod apply_edits_tests {
+    use super::*;
+    use crate::lsp::Range;
+
+    fn edit(sl: u32, sc: u32, el: u32, ec: u32, text: &str) -> TextEdit {
+        TextEdit::new(
+            Range::new(Position::new(sl, sc), Position::new(el, ec)),
+            text,
+        )
+    }
+
+    #[test]
+    fn applies_edits_in_any_given_order() {
+        let text = "fn main() {\n    todo!()\n}\n";
+        // Given deliberately out of order; both refer to the original text.
+        let edits = vec![
+            edit(1, 4, 1, 11, "println!(\"hi\")"),
+            edit(0, 3, 0, 7, "start"),
+        ];
+        assert_eq!(
+            apply_edits(text, &edits).unwrap(),
+            "fn start() {\n    println!(\"hi\")\n}\n"
+        );
+    }
+
+    #[test]
+    fn same_position_inserts_keep_their_order() {
+        let text = "b";
+        let edits = vec![edit(0, 0, 0, 0, "1"), edit(0, 0, 0, 0, "2")];
+        assert_eq!(apply_edits(text, &edits).unwrap(), "12b");
+    }
+
+    #[test]
+    fn honours_the_negotiated_encoding() {
+        // Replace "x" after "😀" (4 UTF-8 bytes / 2 UTF-16 units / 1 scalar).
+        let text = "😀x";
+        let utf8 = vec![edit(0, 4, 0, 5, "y")];
+        assert_eq!(
+            apply_edits_with(text, &utf8, PositionEncodingKind::Utf8).unwrap(),
+            "😀y"
+        );
+        let utf32 = vec![edit(0, 1, 0, 2, "y")];
+        assert_eq!(
+            apply_edits_with(text, &utf32, PositionEncodingKind::Utf32).unwrap(),
+            "😀y"
+        );
+    }
+
+    #[test]
+    fn overlapping_edits_are_rejected() {
+        let text = "abcdef";
+        let edits = vec![edit(0, 0, 0, 3, "x"), edit(0, 2, 0, 4, "y")];
+        let err = apply_edits(text, &edits).expect_err("overlap");
+        assert!(err.to_string().contains("overlap"), "was: {err}");
+    }
+
+    #[test]
+    fn inverted_range_is_rejected_and_empty_edits_are_identity() {
+        let text = "abc";
+        let inverted = vec![edit(0, 2, 0, 1, "x")];
+        assert!(apply_edits(text, &inverted).is_err());
+        assert_eq!(apply_edits(text, &[]).unwrap(), "abc");
     }
 }

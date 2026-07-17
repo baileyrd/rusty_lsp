@@ -28,20 +28,21 @@ use crate::lsp::{
     DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseNotebookDocumentParams,
     DidCloseTextDocumentParams, DidOpenNotebookDocumentParams, DidOpenTextDocumentParams,
     DidSaveNotebookDocumentParams, DidSaveTextDocumentParams, DocumentColorParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams, DocumentLink,
-    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
-    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, FoldingRange,
-    FoldingRangeParams, FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, InlayHint, InlayHintParams, InlineCompletionParams,
-    InlineCompletionResponse, InlineValue, InlineValueParams, LinkedEditingRangeParams,
-    LinkedEditingRanges, Location, Moniker, MonikerParams, PrepareRenameResponse, ReferenceParams,
-    RenameFilesParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens,
-    SemanticTokensDeltaParams, SemanticTokensDeltaResult, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams, SignatureHelp, SignatureHelpParams,
-    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
-    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, WillSaveTextDocumentParams,
-    WorkDoneProgressCancelParams, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
-    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentLink, DocumentLinkParams,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandParams, FoldingRange, FoldingRangeParams,
+    FullDocumentDiagnosticReport, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
+    InitializeResult, InlayHint, InlayHintParams, InlineCompletionParams, InlineCompletionResponse,
+    InlineValue, InlineValueParams, LinkedEditingRangeParams, LinkedEditingRanges, Location,
+    Moniker, MonikerParams, PrepareRenameResponse, ReferenceParams, RenameFilesParams,
+    RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
+    SemanticTokensDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
+    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
+    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
+    WillSaveTextDocumentParams, WorkDoneProgressCancelParams, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReport, WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -159,6 +160,18 @@ pub trait LanguageServer: Send + Sync + 'static {
         &self,
         params: ReferenceParams,
     ) -> impl Future<Output = Result<Option<Vec<Location>>>> + Send {
+        let _ = params;
+        async { Ok(None) }
+    }
+
+    /// Handle `textDocument/documentHighlight`: every occurrence of the
+    /// symbol under the cursor within the document, for the client to
+    /// highlight. Advertise via
+    /// [`crate::lsp::ServerCapabilities::document_highlight_provider`].
+    fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> impl Future<Output = Result<Option<Vec<DocumentHighlight>>>> + Send {
         let _ = params;
         async { Ok(None) }
     }

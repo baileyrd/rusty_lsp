@@ -57,8 +57,13 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::VecDeque;
+use std::time::Duration;
 use tokio::io::{BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
+
+/// How long [`TestClient`] waits for an expected message before failing the
+/// test with a descriptive error instead of hanging it.
+const DEFAULT_RECV_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An in-memory LSP client driving a spawned [`crate::Server`].
 pub struct TestClient {
@@ -68,6 +73,7 @@ pub struct TestClient {
     buffered: VecDeque<Message>,
     next_id: i64,
     server: JoinHandle<Result<()>>,
+    timeout: Duration,
 }
 
 impl TestClient {
@@ -91,7 +97,18 @@ impl TestClient {
             buffered: VecDeque::new(),
             next_id: 0,
             server,
+            timeout: DEFAULT_RECV_TIMEOUT,
         }
+    }
+
+    /// Change how long every receive waits before failing (default: 10s).
+    /// A timed-out receive returns an error naming the timeout and the
+    /// methods of the messages buffered so far, instead of hanging the
+    /// test run.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     /// Send a raw [`Message`] to the server.
@@ -238,16 +255,38 @@ impl TestClient {
     pub async fn shutdown_and_exit(mut self) -> Result<()> {
         let _: Value = self.request("shutdown", Value::Null).await?;
         self.notify("exit", serde_json::json!({})).await?;
-        match self.server.await {
-            Ok(result) => result,
-            Err(join_err) => Err(Error::internal(format!("server task failed: {join_err}"))),
+        match tokio::time::timeout(self.timeout, self.server).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(join_err)) => Err(Error::internal(format!("server task failed: {join_err}"))),
+            Err(_elapsed) => Err(Error::internal(format!(
+                "server task did not stop within {:?} after exit",
+                self.timeout
+            ))),
         }
     }
 
-    /// Read one message off the wire.
+    /// Read one message off the wire, failing with a descriptive error if
+    /// nothing arrives within the configured timeout.
     async fn read(&mut self) -> Result<Message> {
-        transport::read_message(&mut self.reader)
-            .await?
-            .ok_or_else(|| Error::protocol("server closed the connection"))
+        match tokio::time::timeout(self.timeout, transport::read_message(&mut self.reader)).await {
+            Ok(result) => result?.ok_or_else(|| Error::protocol("server closed the connection")),
+            Err(_elapsed) => {
+                let seen: Vec<String> = self
+                    .buffered
+                    .iter()
+                    .map(|message| match message {
+                        Message::Request(r) => format!("request `{}`", r.method),
+                        Message::Notification(n) => format!("notification `{}`", n.method),
+                        Message::Response(r) => format!("response to {:?}", r.id),
+                    })
+                    .collect();
+                Err(Error::internal(format!(
+                    "no message from the server within {:?}; {} message(s) buffered while                      scanning: [{}]",
+                    self.timeout,
+                    seen.len(),
+                    seen.join(", ")
+                )))
+            }
+        }
     }
 }

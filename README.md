@@ -23,7 +23,7 @@ build one on top of.
 | **Async without `async-trait`** | Trait methods are declared `-> impl Future + Send` (RPITIT). You still write the bodies as ordinary `async fn`. The `+ Send` bound lets request handlers be spawned on a multi-threaded runtime with no boxing layer. |
 | **Concurrency** | Notifications run in receipt order (so document state stays consistent — a `didChange` is applied before a later request observes the buffer), while requests are spawned so a slow handler never blocks the loop. `Server::with_max_concurrent_requests` optionally caps how many handler bodies run at once, and `Server::with_outbound_queue_limit` bounds the output queue against a client that stops reading. |
 | **Cancellation** | `$/cancelRequest` aborts the in-flight handler and replies with `RequestCancelled` (`-32800`). The bookkeeping guarantees each request is answered **exactly once**, even when a handler completes at the same instant a cancel arrives. Handlers additionally see a cooperative [`CancelToken`](src/cancel.rs) (via `rusty_lsp::cancel::current()`) that reaches work an abort cannot: `spawn_blocking` computations, helper tasks, CPU-bound stretches. |
-| **Lifecycle** | `initialize` is enforced first; requests before it get `ServerNotInitialized` (`-32002`); a second `initialize` is rejected; work after `shutdown` is refused; `exit` (or EOF at a frame boundary) stops the loop cleanly. |
+| **Lifecycle** | `initialize` is enforced first; requests before it get `ServerNotInitialized` (`-32002`); a second `initialize` is rejected; work after `shutdown` is refused; `exit` (or EOF at a frame boundary) stops the loop cleanly — and `exit` *without* a prior `shutdown` makes `serve` return an error, so a `fn main() -> Result<()>` exits with code 1 exactly as the spec requires. |
 | **Extensibility** | Unmodelled methods reach `handle_request` / `handle_notification`, and `ServerCapabilities::extra` lets you advertise any capability the framework does not type. |
 
 ## Architecture
@@ -46,7 +46,7 @@ tagged release:
 
 ```toml
 [dependencies]
-rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.2.0" }
+rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.3.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -179,12 +179,27 @@ let hover = self.documents.with(&uri, |doc| hover_at(&doc.text, position)).await
 It's entirely optional — wire up the matching `LanguageServer` methods only
 if you want it; the framework doesn't require or assume it exists.
 
+`Documents` also exposes encoding-aware position math directly —
+`offset_at`/`position_at`/`with_index` resolve through a per-document cached
+[`text::LineIndex`](src/text.rs) (invalidated on every edit), so the common
+"where is this cursor in the buffer?" lookup is one call and `O(log n)`.
+
 URIs are a lightweight [`Uri`](src/lsp/base.rs) newtype that normalizes on
 construction (scheme case, percent-encoding hex), so differently-spelled
 equivalents hash and compare equal, with `Uri::from_file_path` /
 `Uri::to_file_path` for filesystem conversion. For position math at scale,
 [`text::LineIndex`](src/text.rs) turns per-conversion `O(document)` scans
-into a binary search over precomputed line starts.
+into a binary search over precomputed line starts, and
+[`text::apply_edits`](src/text.rs) applies a batch of `TextEdit`s atomically
+(any order, overlap-checked) — handy for asserting formatting/rename results
+in tests.
+
+Diagnostics carry the full 3.16 surface (`tags`, `relatedInformation`,
+`codeDescription`, `data` for the diagnostic→quick-fix round trip), and
+`WorkspaceEdit` models `documentChanges` — versioned edits, file
+creates/renames/deletes, and change annotations — as real types. Dynamic
+registrations get typed `DocumentSelector`/`DocumentFilter` options via
+`Registration::for_documents`.
 
 A backend can also inspect what the client declared support for via
 `ClientCapabilities::get`/`supports`, which walk the raw capabilities object
@@ -193,10 +208,12 @@ requiring every capability leaf to have its own typed field.
 
 ### Handling methods the framework doesn't model
 
-Core navigation and editing requests (`hover`, `completion` + resolve,
+Core navigation and editing requests (`hover`, `completion` + resolve
+(with fully modelled items: snippets, text edits, label details, tags,
+resolve `data`, 3.17 `itemDefaults`),
 `definition`/`declaration`/`typeDefinition`/`implementation`, `references`,
-`documentSymbol`, `workspace/symbol`, `signatureHelp`, `codeAction` + resolve,
-`rename` + `prepareRename`, `workspace/executeCommand`), editor-UX requests
+`documentHighlight`, `documentSymbol`, `workspace/symbol`, `signatureHelp`,
+`codeAction` + resolve, `rename` + `prepareRename`, `workspace/executeCommand`), editor-UX requests
 (`formatting`/`rangeFormatting`/`onTypeFormatting`, `foldingRange`,
 `selectionRange`, `codeLens` + resolve, `documentLink` + resolve,
 `documentColor`/`colorPresentation`, `semanticTokens` full/delta/range,
@@ -269,6 +286,10 @@ client.initialize(InitializeParams::default()).await?;
 let hover: Option<Hover> = client.request("textDocument/hover", params).await?;
 client.shutdown_and_exit().await?;
 ```
+
+Every receive has a default 10s timeout (configurable via `with_timeout`),
+so a dropped message fails the test with a descriptive error — including
+what was buffered while scanning — instead of hanging the suite.
 
 For the crate's own suite:
 

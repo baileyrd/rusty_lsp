@@ -4,8 +4,8 @@
 //! waiting for the server to push them, which scales better for
 //! expensive-to-compute or huge-workspace diagnostics).
 
-use super::base::{Range, TextDocumentIdentifier, Uri};
-use super::enums::DiagnosticSeverity;
+use super::base::{Location, Range, TextDocumentIdentifier, Uri};
+use super::enums::{DiagnosticSeverity, DiagnosticTag};
 use super::progress::{PartialResultParams, WorkDoneProgressParams};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,11 +22,28 @@ pub struct Diagnostic {
     /// A machine-readable code (number or string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<Value>,
+    /// A link explaining the code (LSP 3.16), e.g. a lint's documentation
+    /// page; clients render the code as clickable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_description: Option<CodeDescription>,
     /// A human-readable origin, e.g. the linter name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// The diagnostic message.
     pub message: String,
+    /// Tags qualifying the diagnostic (unnecessary/deprecated), letting
+    /// clients fade or strike the range instead of squiggling it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<DiagnosticTag>>,
+    /// Secondary locations that explain the diagnostic, e.g. "first
+    /// declared here" for a duplicate-definition error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related_information: Option<Vec<DiagnosticRelatedInformation>>,
+    /// Opaque payload preserved by the client and handed back on the
+    /// `textDocument/codeAction` request for this diagnostic — the standard
+    /// way to carry quick-fix context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 impl Diagnostic {
@@ -36,8 +53,12 @@ impl Diagnostic {
             range,
             severity: Some(severity),
             code: None,
+            code_description: None,
             source: None,
             message: message.into(),
+            tags: None,
+            related_information: None,
+            data: None,
         }
     }
 
@@ -47,6 +68,57 @@ impl Diagnostic {
         self.source = Some(source.into());
         self
     }
+
+    /// Set the diagnostic's machine-readable code, optionally with a link
+    /// explaining it.
+    #[must_use]
+    pub fn with_code(mut self, code: impl Into<Value>, href: Option<Uri>) -> Self {
+        self.code = Some(code.into());
+        self.code_description = href.map(|href| CodeDescription { href });
+        self
+    }
+
+    /// Add a tag (unnecessary/deprecated) to the diagnostic.
+    #[must_use]
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        self.tags.get_or_insert_with(Vec::new).push(tag);
+        self
+    }
+
+    /// Add a secondary location that explains the diagnostic.
+    #[must_use]
+    pub fn with_related(mut self, location: Location, message: impl Into<String>) -> Self {
+        self.related_information
+            .get_or_insert_with(Vec::new)
+            .push(DiagnosticRelatedInformation {
+                location,
+                message: message.into(),
+            });
+        self
+    }
+
+    /// Attach the opaque payload handed back on `textDocument/codeAction`.
+    #[must_use]
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
+        self
+    }
+}
+
+/// A link explaining a diagnostic's [`code`](Diagnostic::code) (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeDescription {
+    /// The URI to open, typically the lint's documentation page.
+    pub href: Uri,
+}
+
+/// A secondary location related to a [`Diagnostic`], with its own message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiagnosticRelatedInformation {
+    /// The related location.
+    pub location: Location,
+    /// What that location contributes, e.g. `"first declared here"`.
+    pub message: String,
 }
 
 /// Parameters of `textDocument/publishDiagnostics`.
@@ -252,5 +324,58 @@ mod tests {
             params.partial_result.partial_result_token,
             Some(super::super::progress::ProgressToken::from("t2"))
         );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_field_tests {
+    use super::*;
+    use crate::lsp::{DiagnosticSeverity, Position};
+    use serde_json::json;
+
+    #[test]
+    fn diagnostic_rich_fields_round_trip() {
+        let range = Range::new(Position::new(1, 0), Position::new(1, 4));
+        let diagnostic = Diagnostic::new(range, DiagnosticSeverity::Warning, "unused variable")
+            .with_source("lint")
+            .with_code(
+                "unused_variables",
+                Some("https://doc.rust-lang.org/error_codes".into()),
+            )
+            .with_tag(DiagnosticTag::Unnecessary)
+            .with_related(
+                Location {
+                    uri: "file:///lib.rs".into(),
+                    range,
+                },
+                "declared here",
+            )
+            .with_data(json!({"fix": "remove"}));
+
+        let value = serde_json::to_value(&diagnostic).unwrap();
+        assert_eq!(value["tags"], json!([1]));
+        assert_eq!(
+            value["codeDescription"]["href"],
+            json!("https://doc.rust-lang.org/error_codes")
+        );
+        assert_eq!(
+            value["relatedInformation"][0]["message"],
+            json!("declared here")
+        );
+        assert_eq!(value["data"], json!({"fix": "remove"}));
+
+        let parsed: Diagnostic = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, diagnostic);
+    }
+
+    #[test]
+    fn minimal_diagnostic_omits_rich_fields() {
+        let range = Range::new(Position::new(0, 0), Position::new(0, 1));
+        let value = serde_json::to_value(Diagnostic::new(range, DiagnosticSeverity::Error, "boom"))
+            .unwrap();
+        assert!(value.get("tags").is_none());
+        assert!(value.get("relatedInformation").is_none());
+        assert!(value.get("codeDescription").is_none());
+        assert!(value.get("data").is_none());
     }
 }
