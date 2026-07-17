@@ -4,6 +4,36 @@ All notable changes to `rusty_lsp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (0.x: minor bumps may break).
 
+## [0.6.2] — 2026-07-17
+
+### Fixed
+
+- **Performance**: concurrent request throughput plateaued far below what
+  the runtime could sustain (~6.2K req/s regardless of pipelining depth,
+  versus tower-lsp's 32.7K–121.5K req/s at the same depths in a head-to-head
+  benchmark). Root cause: the single writer task wrote and `flush()`ed
+  every outbound message individually — one syscall pair per message, fully
+  serialized — so a burst of responses from many concurrently-finishing
+  handlers still drained the outbound queue one flush at a time. Fixed by
+  draining every message already queued (via `try_recv`, which never waits)
+  into one buffer before issuing a single `write_all` + `flush` for the
+  whole batch; a lone message still gets a `write_all` + `flush` immediately
+  with no added latency. Depth-128 pipelined throughput went from ~6.2K to
+  ~84K req/s in the same benchmark, closing nearly the entire gap to
+  tower-lsp. No public API changes.
+- Replaced the `oneshot::channel` "start gate" `spawn_request` used (added
+  in 0.6.1 to close the silent-response-drop race) with a cheaper
+  equivalent: the `in_flight` lock is now held across the duplicate-id
+  check, the `tokio::spawn` call, and the subsequent insert, as one
+  critical section. If the spawned task's own thread reaches its
+  `in_flight` removal before the spawning thread's insert, it now simply
+  blocks briefly on the same `std::sync::Mutex` instead of waiting on a
+  channel wakeup — same hard ordering guarantee, without a mandatory extra
+  scheduler round-trip on every request. (This alone had negligible
+  standalone effect on the plateau above; the writer batching fix was the
+  actual fix. Both are shipped together since they touch the same code
+  path and were investigated in the same pass.)
+
 ## [0.6.1] — 2026-07-17
 
 ### Fixed

@@ -51,8 +51,8 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Semaphore, mpsc, oneshot, watch};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::AbortHandle;
 
 /// Bookkeeping for one running request handler.
@@ -256,11 +256,35 @@ where
         // instead of serving a half-closed connection until reader EOF.
         let (writer_dead_tx, writer_dead) = watch::channel(false);
         let writer_task = tokio::spawn(async move {
-            while let Some(message) = out_rx.recv().await {
+            let mut batch = Vec::new();
+            loop {
+                let Some(first) = out_rx.recv().await else {
+                    break;
+                };
                 queue_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                if let Err(err) = transport::write_message(&mut writer, &message).await {
+                batch.clear();
+                let mut encode = transport::encode_message(&mut batch, &first);
+                // Drain whatever else is already queued so a burst of
+                // responses (e.g. many concurrent handlers finishing close
+                // together) becomes one `write_all` + one `flush`, not one
+                // syscall pair per message. `try_recv` never awaits, so this
+                // only picks up messages already sitting in the channel —
+                // it can't stall waiting for more to arrive.
+                while let Ok(message) = out_rx.try_recv() {
+                    queue_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    encode = encode.and_then(|()| transport::encode_message(&mut batch, &message));
+                }
+                if let Err(err) = encode {
                     let _ = writer_dead_tx.send(true);
                     return Err(err);
+                }
+                if let Err(err) = writer.write_all(&batch).await {
+                    let _ = writer_dead_tx.send(true);
+                    return Err(Error::from(err));
+                }
+                if let Err(err) = writer.flush().await {
+                    let _ = writer_dead_tx.send(true);
+                    return Err(Error::from(err));
                 }
             }
             Ok::<(), Error>(())
@@ -592,15 +616,6 @@ fn spawn_request<B: LanguageServer>(
     let method = req.method;
     let params = req.params;
 
-    if lock(in_flight).contains_key(&request_id) {
-        send_error(
-            out_tx,
-            request_id,
-            Error::invalid_request("request id is already in flight"),
-        );
-        return;
-    }
-
     let backend = Arc::clone(backend);
     let handler_out_tx = out_tx.clone();
     let in_flight_for_task = Arc::clone(in_flight);
@@ -610,21 +625,36 @@ fn spawn_request<B: LanguageServer>(
     let permits = request_permits.clone();
     let notes_done = notes_done.clone();
 
-    // Gate the task's start on this being sent, so it cannot observe (or
-    // mutate) `in_flight` before the entry below is inserted. Without this,
-    // a handler with no real `.await` inside it (the common case for a
-    // trivial or already-cached result) can run to completion on another
-    // worker thread and reach the `remove` below before the spawning
-    // thread reaches `insert` — finding nothing to remove, concluding a
-    // cancel beat it there, and silently dropping the response. `tokio::
-    // spawn` schedules eagerly on a multi-threaded runtime, so this is not
-    // a theoretical race: it reproduces under real concurrent load.
-    let (start_tx, start_rx) = oneshot::channel::<()>();
+    // Hold `in_flight`'s lock across the "already in flight" check, the
+    // spawn, and the insert below, as one critical section spanning both.
+    //
+    // This closes a race that a channel-based start gate used to handle
+    // more expensively: a handler with no real `.await` inside it (the
+    // common case for a trivial or already-cached result) can run to
+    // completion on another worker thread and reach its own "remove myself
+    // to claim the response" line before this thread finishes registering
+    // it — `tokio::spawn` schedules eagerly on a multi-threaded runtime, so
+    // this is not theoretical, it reproduces under real concurrent load.
+    // That removal also locks `in_flight`, so as long as *this* thread is
+    // still holding the lock when the task reaches it, the task's own
+    // thread simply blocks — for the few nanoseconds `tokio::spawn` plus a
+    // `HashMap` insert take — until this scope ends, at which point the
+    // entry is already there and the removal succeeds correctly. A tiny,
+    // bounded `std::sync::Mutex` hold (no `.await` inside it) is the
+    // standard tool for this; it costs nothing close to what a full
+    // channel poll/wake round trip on every request would.
+    let mut guard = lock(in_flight);
+    if guard.contains_key(&request_id) {
+        drop(guard);
+        send_error(
+            out_tx,
+            request_id,
+            Error::invalid_request("request id is already in flight"),
+        );
+        return;
+    }
 
     let join = tokio::spawn(cancel::scope(task_token, async move {
-        if start_rx.await.is_err() {
-            return; // The spawning thread dropped without registering us.
-        }
         // Wait for every notification received before this request to be
         // applied, so the handler observes document state as if dispatch
         // were fully sequential.
@@ -646,7 +676,9 @@ fn spawn_request<B: LanguageServer>(
         )))
         .await;
         // Claim the right to respond. If the entry is already gone, a cancel
-        // beat us to it and has sent the cancellation response.
+        // beat us to it and has sent the cancellation response. If we get
+        // here before the spawning thread has inserted our entry, this
+        // blocks (see above) rather than racing past an absent entry.
         if lock(&in_flight_for_task).remove(&response_id).is_some() {
             let response = match outcome {
                 Ok(Ok(value)) => Response::success(response_id, value),
@@ -661,17 +693,15 @@ fn spawn_request<B: LanguageServer>(
         }
     }));
 
-    lock(in_flight).insert(
+    guard.insert(
         request_id,
         InFlightEntry {
             abort: join.abort_handle(),
             token,
         },
     );
-    // Only now may the task proceed — its bookkeeping is registered, so
-    // whichever of {the task finishing, a `$/cancelRequest`} comes first
-    // will correctly find (and claim) the entry.
-    let _ = start_tx.send(());
+    // `guard` drops here (end of scope), releasing the lock — only now can
+    // a racing task blocked on the same lock proceed.
 }
 
 /// A future adapter that catches panics from the inner future's `poll`,
