@@ -29,7 +29,7 @@
 //!     async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
 //!         Ok(InitializeResult {
 //!             capabilities: ServerCapabilities {
-//!                 text_document_sync: Some(TextDocumentSyncKind::Full),
+//!                 text_document_sync: Some(TextDocumentSyncKind::Full.into()),
 //!                 hover_provider: Some(true),
 //!                 ..Default::default()
 //!             },

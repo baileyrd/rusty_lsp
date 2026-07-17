@@ -11,6 +11,8 @@
 //!   markers, republished on every edit.
 //! - **Hover** — reports the word under the cursor and how often it occurs.
 //! - **Completion** — proposes the distinct words already present in the buffer.
+//! - **Document highlights** — marks every occurrence of the word under the
+//!   cursor, dogfooding [`rusty_lsp::Documents::offset_at`].
 //!
 //! Run it as an editor would (it speaks LSP over stdio):
 //!
@@ -25,8 +27,9 @@ use rusty_lsp::error::Result;
 use rusty_lsp::lsp::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, Hover, HoverParams, InitializeParams, InitializeResult, MessageType,
-    Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncKind, Uri,
+    DidOpenTextDocumentParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams,
+    Hover, HoverParams, InitializeParams, InitializeResult, MessageType, Position, Range,
+    ServerCapabilities, ServerInfo, TextDocumentSyncKind, Uri,
 };
 use rusty_lsp::text::{byte_to_utf16_column, utf16_column_to_byte};
 use rusty_lsp::{Client, Documents, LanguageServer, Server};
@@ -68,8 +71,9 @@ impl LanguageServer for TextServer {
     async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncKind::Incremental),
+                text_document_sync: Some(TextDocumentSyncKind::Incremental.into()),
                 hover_provider: Some(true),
+                document_highlight_provider: Some(true),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Vec::new(),
                     resolve_provider: Some(false),
@@ -115,6 +119,24 @@ impl LanguageServer for TextServer {
         Ok(self
             .documents
             .with(&uri, |doc| hover_at(&doc.text, position))
+            .await
+            .flatten())
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let position = params.text_document_position.position;
+        let uri = params.text_document_position.text_document.uri;
+        // `offset_at` resolves the cursor through the store's cached line
+        // index in the negotiated encoding.
+        let Some(offset) = self.documents.offset_at(&uri, position).await else {
+            return Ok(None);
+        };
+        Ok(self
+            .documents
+            .with(&uri, |doc| highlights_at(&doc.text, offset))
             .await
             .flatten())
     }
@@ -185,6 +207,54 @@ fn hover_at(text: &str, position: Position) -> Option<Hover> {
         if occurrences == 1 { "" } else { "s" },
     );
     Some(Hover::markdown(body).with_range(range))
+}
+
+/// Highlight every occurrence of the word at byte `offset`.
+fn highlights_at(text: &str, offset: usize) -> Option<Vec<DocumentHighlight>> {
+    let word = word_at_offset(text, offset)?.to_owned();
+
+    // Mark every whole-word occurrence.
+    let mut highlights = Vec::new();
+    for (line_no, _line_start, line) in lines_with_offsets(text) {
+        for (s, e) in word_tokens(line) {
+            if line[s..e] == word {
+                let range = Range::new(
+                    Position::new(line_no, byte_to_utf16_column(line, s)),
+                    Position::new(line_no, byte_to_utf16_column(line, e)),
+                );
+                highlights
+                    .push(DocumentHighlight::new(range).with_kind(DocumentHighlightKind::Text));
+            }
+        }
+    }
+    Some(highlights)
+}
+
+/// The word token containing byte `offset`, if any.
+fn word_at_offset(text: &str, offset: usize) -> Option<&str> {
+    for (_number, line_start, line) in lines_with_offsets(text) {
+        if offset < line_start {
+            break;
+        }
+        if offset <= line_start + line.len() {
+            let byte = offset - line_start;
+            return word_tokens(line)
+                .into_iter()
+                .find(|&(s, e)| byte >= s && byte <= e)
+                .map(|(s, e)| &line[s..e]);
+        }
+    }
+    None
+}
+
+/// Each line of `text` with its zero-based number and starting byte offset.
+fn lines_with_offsets(text: &str) -> impl Iterator<Item = (u32, usize, &str)> {
+    let mut start = 0usize;
+    text.split('\n').enumerate().map(move |(number, line)| {
+        let line_start = start;
+        start += line.len() + 1;
+        (number as u32, line_start, line)
+    })
 }
 
 /// Diagnostics for every marker (`TODO`/`FIXME`/`XXX`) in the document.

@@ -203,6 +203,31 @@ impl Documents {
             .map(|entry| f(&entry.document))
     }
 
+    /// The URIs of every open document, in no particular order.
+    pub async fn uris(&self) -> Vec<Uri> {
+        self.inner.read().await.keys().cloned().collect()
+    }
+
+    /// How many documents are open.
+    pub async fn len(&self) -> usize {
+        self.inner.read().await.len()
+    }
+
+    /// Whether no documents are open.
+    pub async fn is_empty(&self) -> bool {
+        self.inner.read().await.is_empty()
+    }
+
+    /// Run `f` over every open document under a single read lock, in no
+    /// particular order — e.g. to compute `workspace/diagnostic` results or
+    /// republish diagnostics after a configuration change. Keep `f` short
+    /// and non-blocking, as with [`with`](Self::with).
+    pub async fn for_each(&self, mut f: impl FnMut(&Uri, &Document)) {
+        for (uri, entry) in self.inner.read().await.iter() {
+            f(uri, &entry.document);
+        }
+    }
+
     /// Like [`with`](Self::with), also handing `f` the document's cached
     /// [`LineIndex`] (built lazily and invalidated on every edit), for
     /// batches of position math over one snapshot.

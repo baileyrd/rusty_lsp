@@ -4,7 +4,7 @@
 use super::base::Uri;
 use super::code_lens::CodeLensOptions;
 use super::diagnostics::DiagnosticOptions;
-use super::enums::{PositionEncodingKind, TextDocumentSyncKind};
+use super::enums::PositionEncodingKind;
 use super::file_operations::FileOperationsServerCapabilities;
 use super::formatting::DocumentOnTypeFormattingOptions;
 use super::hierarchy::{CallHierarchyOptions, TypeHierarchyOptions};
@@ -226,9 +226,13 @@ pub struct ServerCapabilities {
     /// the encoding every conversion in [`crate::text`] assumes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position_encoding: Option<PositionEncodingKind>,
-    /// How the server wants document content synchronised.
+    /// How the server wants document content synchronised: a bare
+    /// [`TextDocumentSyncKind`](super::enums::TextDocumentSyncKind)
+    /// (converts via `.into()`) or the full
+    /// [`TextDocumentSyncOptions`](super::document::TextDocumentSyncOptions)
+    /// form (open/close, will-save, save-with-text).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text_document_sync: Option<TextDocumentSyncKind>,
+    pub text_document_sync: Option<super::document::TextDocumentSyncCapability>,
     /// Whether the server provides hover support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hover_provider: Option<bool>,

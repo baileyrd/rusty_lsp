@@ -290,3 +290,43 @@ impl TestClient {
         }
     }
 }
+
+impl TestClient {
+    /// Open a document (`textDocument/didOpen`) with version 1.
+    pub async fn open(&mut self, uri: &str, language_id: &str, text: &str) -> Result<()> {
+        self.notify(
+            "textDocument/didOpen",
+            serde_json::json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": language_id,
+                    "version": 1,
+                    "text": text,
+                }
+            }),
+        )
+        .await
+    }
+
+    /// Replace a document's entire content (`textDocument/didChange`, full
+    /// sync) at the given version.
+    pub async fn change_full(&mut self, uri: &str, version: i32, text: &str) -> Result<()> {
+        self.notify(
+            "textDocument/didChange",
+            serde_json::json!({
+                "textDocument": {"uri": uri, "version": version},
+                "contentChanges": [{"text": text}],
+            }),
+        )
+        .await
+    }
+
+    /// Close a document (`textDocument/didClose`).
+    pub async fn close(&mut self, uri: &str) -> Result<()> {
+        self.notify(
+            "textDocument/didClose",
+            serde_json::json!({"textDocument": {"uri": uri}}),
+        )
+        .await
+    }
+}

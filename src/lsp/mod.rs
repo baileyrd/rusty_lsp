@@ -56,7 +56,8 @@ pub use diagnostics::{
 };
 pub use document::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, TextDocumentContentChangeEvent, WillSaveTextDocumentParams,
+    DidSaveTextDocumentParams, SaveOptions, SaveOptionsCapability, TextDocumentContentChangeEvent,
+    TextDocumentSyncCapability, TextDocumentSyncOptions, WillSaveTextDocumentParams,
 };
 pub use enums::{
     CodeActionTriggerKind, CompletionItemKind, CompletionItemTag, CompletionTriggerKind,
@@ -132,9 +133,9 @@ pub use registration::{
 };
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
 pub use semantic_tokens::{
-    SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensDeltaResult,
-    SemanticTokensEdit, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensRangeParams,
+    SemanticTokens, SemanticTokensBuilder, SemanticTokensDelta, SemanticTokensDeltaParams,
+    SemanticTokensDeltaResult, SemanticTokensEdit, SemanticTokensFullOptions, SemanticTokensLegend,
+    SemanticTokensOptions, SemanticTokensParams, SemanticTokensRangeParams,
 };
 pub use signature::{
     Documentation, ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpContext,

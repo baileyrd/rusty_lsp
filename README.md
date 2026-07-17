@@ -21,7 +21,7 @@ build one on top of.
 |---|---|
 | **Extension point** | One trait, `LanguageServer`. Every method except `initialize` has a default, so a minimal server is just `initialize` returning its capabilities. |
 | **Async without `async-trait`** | Trait methods are declared `-> impl Future + Send` (RPITIT). You still write the bodies as ordinary `async fn`. The `+ Send` bound lets request handlers be spawned on a multi-threaded runtime with no boxing layer. |
-| **Concurrency** | Notifications run in receipt order (so document state stays consistent — a `didChange` is applied before a later request observes the buffer), while requests are spawned so a slow handler never blocks the loop. `Server::with_max_concurrent_requests` optionally caps how many handler bodies run at once, and `Server::with_outbound_queue_limit` bounds the output queue against a client that stops reading. |
+| **Concurrency** | Notifications run in receipt order on a dedicated serialized worker (so document state stays consistent — a `didChange` is applied before a later request observes the buffer, enforced via a completion watermark) without ever blocking the message loop: `$/cancelRequest` and response delivery stay responsive even mid-`didChange`. Requests are spawned tasks; `Server::with_max_concurrent_requests` optionally caps how many handler bodies run at once, and `Server::with_outbound_queue_limit` bounds the output queue against a client that stops reading. |
 | **Cancellation** | `$/cancelRequest` aborts the in-flight handler and replies with `RequestCancelled` (`-32800`). The bookkeeping guarantees each request is answered **exactly once**, even when a handler completes at the same instant a cancel arrives. Handlers additionally see a cooperative [`CancelToken`](src/cancel.rs) (via `rusty_lsp::cancel::current()`) that reaches work an abort cannot: `spawn_blocking` computations, helper tasks, CPU-bound stretches. |
 | **Lifecycle** | `initialize` is enforced first; requests before it get `ServerNotInitialized` (`-32002`); a second `initialize` is rejected; work after `shutdown` is refused; `exit` (or EOF at a frame boundary) stops the loop cleanly — and `exit` *without* a prior `shutdown` makes `serve` return an error, so a `fn main() -> Result<()>` exits with code 1 exactly as the spec requires. |
 | **Extensibility** | Unmodelled methods reach `handle_request` / `handle_notification`, and `ServerCapabilities::extra` lets you advertise any capability the framework does not type. |
@@ -46,7 +46,7 @@ tagged release:
 
 ```toml
 [dependencies]
-rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.3.0" }
+rusty_lsp = { git = "https://github.com/baileyrd/rusty_lsp", tag = "v0.4.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -74,7 +74,7 @@ impl LanguageServer for Backend {
     async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncKind::Full),
+                text_document_sync: Some(TextDocumentSyncKind::Full.into()),
                 hover_provider: Some(true),
                 ..Default::default()
             },
@@ -113,6 +113,12 @@ client.register_capability(vec![Registration::new("1", "textDocument/formatting"
 client.unregister_capability(vec![Unregistration { id: "1".into(), method: "textDocument/formatting".into() }]).await?;
 client.workspace_folders().await?;      // workspace/workspaceFolders
 client.telemetry_event(payload)?;       // telemetry/event
+
+// One-section, typed configuration:
+let settings: MySettings = client.config_section("myServer", None).await?;
+
+// Progress on the token the client attached to a request (no create round trip):
+let progress = client.begin_progress_for(&params.work_done, begin)?;
 
 // Don't let a wedged editor hang a handler forever:
 let cfg: Vec<Value> = client
@@ -179,10 +185,18 @@ let hover = self.documents.with(&uri, |doc| hover_at(&doc.text, position)).await
 It's entirely optional — wire up the matching `LanguageServer` methods only
 if you want it; the framework doesn't require or assume it exists.
 
+For semantic tokens, `SemanticTokensBuilder` computes the spec's
+relative encoding (`deltaLine`/`deltaStart`) from absolute positions —
+legend names resolved, tokens sorted into document order, multi-line
+ranges split per line — so servers never hand-roll the most error-prone
+encoding in LSP.
+
 `Documents` also exposes encoding-aware position math directly —
 `offset_at`/`position_at`/`with_index` resolve through a per-document cached
 [`text::LineIndex`](src/text.rs) (invalidated on every edit), so the common
-"where is this cursor in the buffer?" lookup is one call and `O(log n)`.
+"where is this cursor in the buffer?" lookup is one call and `O(log n)` —
+and the open set is enumerable (`uris`, `len`, `for_each`) for
+workspace-wide operations.
 
 URIs are a lightweight [`Uri`](src/lsp/base.rs) newtype that normalizes on
 construction (scheme case, percent-encoding hex), so differently-spelled
@@ -211,7 +225,8 @@ requiring every capability leaf to have its own typed field.
 Core navigation and editing requests (`hover`, `completion` + resolve
 (with fully modelled items: snippets, text edits, label details, tags,
 resolve `data`, 3.17 `itemDefaults`),
-`definition`/`declaration`/`typeDefinition`/`implementation`, `references`,
+`definition`/`declaration`/`typeDefinition`/`implementation` (returning
+plain locations or `LocationLink`s for `linkSupport` clients), `references`,
 `documentHighlight`, `documentSymbol`, `workspace/symbol`, `signatureHelp`,
 `codeAction` + resolve, `rename` + `prepareRename`, `workspace/executeCommand`), editor-UX requests
 (`formatting`/`rangeFormatting`/`onTypeFormatting`, `foldingRange`,
