@@ -3,6 +3,7 @@
 use super::base::TextDocumentPositionParams;
 use super::enums::{MarkupKind, SignatureHelpTriggerKind};
 use super::features::MarkupContent;
+use super::progress::WorkDoneProgressParams;
 use serde::{Deserialize, Serialize};
 
 /// Parameters of `textDocument/signatureHelp`.
@@ -14,6 +15,8 @@ pub struct SignatureHelpParams {
     /// Additional information about what triggered this request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<SignatureHelpContext>,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
 }
 
 /// Additional signature-help-trigger context.

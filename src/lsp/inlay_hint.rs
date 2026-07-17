@@ -3,6 +3,7 @@
 use super::base::{Location, Position, Range, TextDocumentIdentifier};
 use super::code_action::Command;
 use super::enums::InlayHintKind;
+use super::progress::WorkDoneProgressParams;
 use super::signature::Documentation;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,6 +16,8 @@ pub struct InlayHintParams {
     pub text_document: TextDocumentIdentifier,
     /// The range to compute hints within.
     pub range: Range,
+    #[serde(flatten)]
+    pub work_done: WorkDoneProgressParams,
 }
 
 /// An inline annotation shown alongside a document's text — a type hint, a

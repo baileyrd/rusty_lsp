@@ -73,6 +73,54 @@ impl Uri {
         Some(Uri(out))
     }
 
+    /// The URI of the containing "directory": everything up to the last
+    /// path segment. The root keeps its trailing slash
+    /// (`file:///a/b` → `file:///a` → `file:///`); returns `None` when
+    /// already at the root or when the URI has no path.
+    pub fn parent(&self) -> Option<Uri> {
+        let path_start = self.path_start()?;
+        let last = self.0.rfind('/')?;
+        if last < path_start || self.0.len() == path_start + 1 {
+            return None; // no path segments, or already the bare root
+        }
+        if last == path_start {
+            // Direct child of the root: parent is the root itself.
+            return Some(Uri(self.0[..=path_start].to_owned()));
+        }
+        Some(Uri(self.0[..last].to_owned()))
+    }
+
+    /// Append a path segment, percent-encoding it as needed:
+    /// `file:///src`.join(`"lib.rs"`) → `file:///src/lib.rs`. A multi-part
+    /// segment (`"a/b"`) keeps its slashes as separators.
+    pub fn join(&self, segment: &str) -> Uri {
+        let base = self.0.strip_suffix('/').unwrap_or(&self.0);
+        let mut joined = String::with_capacity(base.len() + segment.len() + 4);
+        joined.push_str(base);
+        joined.push('/');
+        for ch in segment.chars() {
+            encode_path_char(&mut joined, ch);
+        }
+        Uri(joined)
+    }
+
+    /// Byte index of the first `/` that begins the URI's path (the one
+    /// after `scheme://authority`, or after `scheme:` for authority-less
+    /// URIs). `None` when the URI has no path at all.
+    fn path_start(&self) -> Option<usize> {
+        let after_scheme = match self.0.find(':') {
+            Some(idx) if self.scheme().is_some() => idx + 1,
+            _ => 0,
+        };
+        let rest = &self.0[after_scheme..];
+        let path_search_from = match rest.strip_prefix("//") {
+            // Skip the authority: the path starts at the next '/'.
+            Some(authority) => after_scheme + 2 + authority.find('/')?,
+            None => after_scheme + rest.find('/')?,
+        };
+        Some(path_search_from)
+    }
+
     /// Convert a `file://` URI back to a filesystem path, percent-decoding
     /// as needed. Returns `None` if the URI is not a `file` URI, names a
     /// remote host, or decodes to invalid UTF-8.
@@ -473,5 +521,37 @@ mod range_tests {
             Some(Range::new(Position::new(0, 3), Position::new(0, 5)))
         );
         assert_eq!(a.intersection(&touching), None);
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn parent_walks_up_to_the_root() {
+        let uri = Uri::new("file:///a/b/c.rs");
+        let parent = uri.parent().expect("has parent");
+        assert_eq!(parent, "file:///a/b");
+        assert_eq!(parent.parent().expect("grandparent"), "file:///a");
+        let root = parent.parent().unwrap().parent().expect("root");
+        assert_eq!(root, "file:///");
+        assert!(root.parent().is_none());
+        assert!(Uri::new("untitled:Untitled-1").parent().is_none());
+    }
+
+    #[test]
+    fn join_appends_and_percent_encodes() {
+        let dir = Uri::new("file:///src");
+        assert_eq!(dir.join("lib.rs"), "file:///src/lib.rs");
+        assert_eq!(dir.join("my file.rs"), "file:///src/my%20file.rs");
+        // Root and trailing-slash bases don't double the separator.
+        assert_eq!(Uri::new("file:///").join("a"), "file:///a");
+        assert_eq!(Uri::new("file:///a/").join("b"), "file:///a/b");
+        // Multi-part segments keep their separators.
+        assert_eq!(dir.join("tests/it.rs"), "file:///src/tests/it.rs");
+        // join is the inverse of parent for simple segments.
+        let file = Uri::new("file:///w/mod.rs");
+        assert_eq!(file.parent().unwrap().join("mod.rs"), file);
     }
 }

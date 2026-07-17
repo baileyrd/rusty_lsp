@@ -86,10 +86,38 @@ impl TestClient {
         B: LanguageServer,
         F: FnOnce(Client) -> B + Send + 'static,
     {
+        TestClient::spawn_configured(|server| server, build)
+    }
+
+    /// Like [`spawn`](Self::spawn), applying `configure` to the [`Server`]
+    /// first — for testing a backend under builder options such as
+    /// [`Server::with_max_concurrent_requests`],
+    /// [`Server::with_outbound_queue_limit`], or
+    /// [`Server::with_teardown_grace`]:
+    ///
+    /// ```rust,ignore
+    /// let mut client = TestClient::spawn_configured(
+    ///     |server| server.with_max_concurrent_requests(1),
+    ///     |client| Backend { client },
+    /// );
+    /// ```
+    pub fn spawn_configured<B, F, C>(configure: C, build: F) -> Self
+    where
+        B: LanguageServer,
+        F: FnOnce(Client) -> B + Send + 'static,
+        C: FnOnce(
+                Server<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>,
+            ) -> Server<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>
+            + Send
+            + 'static,
+    {
         let (client_io, server_io) = tokio::io::duplex(64 * 1024);
         let (server_read, server_write) = tokio::io::split(server_io);
-        let server =
-            tokio::spawn(async move { Server::new(server_read, server_write).serve(build).await });
+        let server = tokio::spawn(async move {
+            configure(Server::new(server_read, server_write))
+                .serve(build)
+                .await
+        });
         let (client_read, client_write) = tokio::io::split(client_io);
         TestClient {
             writer: client_write,

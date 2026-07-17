@@ -218,6 +218,32 @@ impl Client {
         )
     }
 
+    /// [`log_message`](Self::log_message) at [`MessageType::Log`].
+    pub fn log(&self, message: impl Into<String>) -> Result<()> {
+        self.log_message(MessageType::Log, message)
+    }
+
+    /// [`log_message`](Self::log_message) at [`MessageType::Debug`]
+    /// (LSP 3.18).
+    pub fn log_debug(&self, message: impl Into<String>) -> Result<()> {
+        self.log_message(MessageType::Debug, message)
+    }
+
+    /// [`log_message`](Self::log_message) at [`MessageType::Info`].
+    pub fn log_info(&self, message: impl Into<String>) -> Result<()> {
+        self.log_message(MessageType::Info, message)
+    }
+
+    /// [`log_message`](Self::log_message) at [`MessageType::Warning`].
+    pub fn log_warning(&self, message: impl Into<String>) -> Result<()> {
+        self.log_message(MessageType::Warning, message)
+    }
+
+    /// [`log_message`](Self::log_message) at [`MessageType::Error`].
+    pub fn log_error(&self, message: impl Into<String>) -> Result<()> {
+        self.log_message(MessageType::Error, message)
+    }
+
     /// Send a `window/showMessage` notification (shown to the user).
     pub fn show_message(&self, typ: MessageType, message: impl Into<String>) -> Result<()> {
         self.notify(
