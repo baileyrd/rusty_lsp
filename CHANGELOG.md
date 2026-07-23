@@ -23,6 +23,18 @@ each release.
   `WorkspaceSymbolOptions` — the same `WorkDoneProgressOptions` mixin
   `CallHierarchyOptions`/`TypeHierarchyOptions` already had, now applied
   uniformly across every capability option struct the spec extends it to.
+- `ClientCapabilities::workspace()`: a typed accessor parsing the
+  `workspace` sub-tree of the client's capabilities into
+  `WorkspaceClientCapabilities` (new module `lsp::client_capabilities`),
+  covering `applyEdit`, `workspaceEdit` (including resource-operation and
+  failure-handling support, change-annotation grouping), dynamic
+  registration for `didChangeConfiguration`/`didChangeWatchedFiles`
+  (including relative-pattern support), `workspace/symbol` capabilities
+  (symbol-kind/tag/resolve support), `workspaceFolders`/`configuration`,
+  the `semanticTokens`/`codeLens`/`inlineValue`/`inlayHint`/`diagnostics`
+  refresh-support flags, and file-operation capabilities. `raw` and the
+  existing dotted-path `get`/`supports` helpers are unchanged — this is a
+  purely additive, typed convenience layer on top of the same data.
 
 ## [0.6.2] — 2026-07-17
 
