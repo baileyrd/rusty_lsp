@@ -44,14 +44,19 @@ pub use base::{
     TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier,
 };
 pub use client_capabilities::{
-    ChangeAnnotationSupportCapability, DidChangeWatchedFilesClientCapabilities,
+    ChangeAnnotationSupportCapability, CompletionClientCapabilities, CompletionItemCapability,
+    CompletionItemKindCapability, CompletionListCapability,
+    DidChangeWatchedFilesClientCapabilities, DocumentSymbolClientCapabilities,
     DynamicRegistrationCapability, FailureHandlingKind, FileOperationClientCapabilities,
-    GeneralClientCapabilities, MarkdownClientCapabilities, MessageActionItemCapability,
+    GeneralClientCapabilities, GotoClientCapabilities, HoverClientCapabilities,
+    InsertTextModeSupportCapability, MarkdownClientCapabilities, MessageActionItemCapability,
     NotebookDocumentClientCapabilities, NotebookDocumentSyncClientCapabilities,
-    RefreshSupportCapability, RegularExpressionsClientCapabilities, ResolveSupportCapability,
-    ResourceOperationKind, ShowDocumentClientCapabilities, ShowMessageClientCapabilities,
+    ParameterInformationCapability, RefreshSupportCapability, RegularExpressionsClientCapabilities,
+    ResolveSupportCapability, ResourceOperationKind, ShowDocumentClientCapabilities,
+    ShowMessageClientCapabilities, SignatureHelpClientCapabilities, SignatureInformationCapability,
     StaleRequestSupportCapability, SymbolKindCapability, TagSupportCapability,
-    WindowClientCapabilities, WorkspaceClientCapabilities, WorkspaceEditClientCapabilities,
+    TextDocumentClientCapabilities, TextDocumentSyncClientCapabilities, WindowClientCapabilities,
+    WorkspaceClientCapabilities, WorkspaceEditClientCapabilities,
     WorkspaceSymbolClientCapabilities,
 };
 pub use code_action::{
@@ -74,9 +79,9 @@ pub use document::{
 pub use enums::{
     CodeActionTriggerKind, CompletionItemKind, CompletionItemTag, CompletionTriggerKind,
     DiagnosticSeverity, DiagnosticTag, DocumentHighlightKind, FileChangeType, InlayHintKind,
-    InlineCompletionTriggerKind, InsertTextFormat, MarkupKind, MessageType, NotebookCellKind,
-    PositionEncodingKind, SignatureHelpTriggerKind, SymbolKind, SymbolTag, TextDocumentSaveReason,
-    TextDocumentSyncKind,
+    InlineCompletionTriggerKind, InsertTextFormat, InsertTextMode, MarkupKind, MessageType,
+    NotebookCellKind, PositionEncodingKind, SignatureHelpTriggerKind, SymbolKind, SymbolTag,
+    TextDocumentSaveReason, TextDocumentSyncKind,
 };
 pub use features::{
     CompletionContext, CompletionEditRange, CompletionItem, CompletionItemDefaults,

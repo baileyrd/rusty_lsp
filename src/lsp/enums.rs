@@ -342,6 +342,17 @@ int_enum! {
 }
 
 int_enum! {
+    /// How whitespace/indentation in a [`crate::lsp::CompletionItem`]'s
+    /// insert text should be adjusted to the surrounding context (LSP 3.16).
+    pub enum InsertTextMode {
+        /// Insert the text and indentation exactly as given.
+        AsIs = 1,
+        /// Adjust leading whitespace/indentation to match the current line.
+        AdjustIndentation = 2,
+    }
+}
+
+int_enum! {
     /// A tag qualifying a [`crate::lsp::Diagnostic`], letting clients render
     /// it specially (faded, struck through) instead of squiggling it.
     pub enum DiagnosticTag {
