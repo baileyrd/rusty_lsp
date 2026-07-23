@@ -46,6 +46,24 @@ Entries accumulate here until the next version bump.
   color, folding range, selection range, moniker, linked editing range,
   inline value) sharing one options shape. The raw-JSON `Registration::new`
   escape hatch still works for anything not covered.
+- **Breaking**: the last capability-negotiation gap the audit found —
+  16 `ServerCapabilities` fields (`hover_provider`, `definition_provider`,
+  `declaration_provider`, `type_definition_provider`,
+  `implementation_provider`, `references_provider`,
+  `document_highlight_provider`, `document_symbol_provider`,
+  `document_formatting_provider`, `document_range_formatting_provider`,
+  `folding_range_provider`, `selection_range_provider`, `color_provider`,
+  `moniker_provider`, `linked_editing_range_provider`, and
+  `inline_value_provider`) were plain `Option<bool>` when the spec allows
+  a server to advertise richer per-provider options (mainly
+  `workDoneProgress` support, plus a `label` for document symbols). They
+  now follow the same `Simple(bool) | Options(...)` pattern the crate
+  already used for code actions, rename, workspace symbols, and call/type
+  hierarchy. Every new enum implements `From<bool>`, so
+  `Some(true)`/`Some(false)` call sites become `Some(true.into())`/
+  `Some(false.into())` — a small, mechanical fix. Nothing changes on the
+  wire: a `Simple(bool)` value serializes exactly like a bare boolean
+  always did.
 
 ---
 

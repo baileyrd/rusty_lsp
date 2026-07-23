@@ -30,7 +30,7 @@
 //!         Ok(InitializeResult {
 //!             capabilities: ServerCapabilities {
 //!                 text_document_sync: Some(TextDocumentSyncKind::Full.into()),
-//!                 hover_provider: Some(true),
+//!                 hover_provider: Some(true.into()),
 //!                 ..Default::default()
 //!             },
 //!             server_info: Some(ServerInfo { name: "demo".into(), version: None }),

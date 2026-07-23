@@ -126,10 +126,16 @@ pub use inline_value::{
 };
 pub use lifecycle::{
     CallHierarchyProviderCapability, ClientCapabilities, ClientInfo, CodeActionProviderCapability,
-    CompletionOptions, CompletionOptionsCompletionItem, InitializeParams, InitializeResult,
-    RenameProviderCapability, ServerCapabilities, ServerInfo, SignatureHelpOptions,
-    TypeHierarchyProviderCapability, WorkspaceServerCapabilities,
-    WorkspaceSymbolProviderCapability,
+    ColorProviderCapability, CompletionOptions, CompletionOptionsCompletionItem,
+    DeclarationProviderCapability, DefinitionProviderCapability,
+    DocumentFormattingProviderCapability, DocumentHighlightProviderCapability,
+    DocumentRangeFormattingProviderCapability, DocumentSymbolProviderCapability,
+    FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
+    InitializeParams, InitializeResult, InlineValueProviderCapability,
+    LinkedEditingRangeProviderCapability, MonikerProviderCapability, ReferencesProviderCapability,
+    RenameProviderCapability, SelectionRangeProviderCapability, ServerCapabilities, ServerInfo,
+    SignatureHelpOptions, TypeDefinitionProviderCapability, TypeHierarchyProviderCapability,
+    WorkspaceServerCapabilities, WorkspaceSymbolProviderCapability,
 };
 pub use links::{
     Color, ColorInformation, ColorPresentation, ColorPresentationParams, DocumentColorParams,
@@ -146,7 +152,7 @@ pub use notebook::{
 pub use progress::{
     PartialResultParams, ProgressParams, ProgressToken, WorkDoneProgress, WorkDoneProgressBegin,
     WorkDoneProgressCancelParams, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
-    WorkDoneProgressParams, WorkDoneProgressReport,
+    WorkDoneProgressOptions, WorkDoneProgressParams, WorkDoneProgressReport,
 };
 pub use ranges::{
     FoldingRange, FoldingRangeKind, FoldingRangeParams, LinkedEditingRangeParams,
@@ -175,9 +181,9 @@ pub use signature::{
     SignatureHelpParams, SignatureInformation,
 };
 pub use symbols::{
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolInformation,
-    WorkspaceSymbol, WorkspaceSymbolLocation, WorkspaceSymbolOptions, WorkspaceSymbolParams,
-    WorkspaceSymbolResponse,
+    DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams, DocumentSymbolResponse,
+    SymbolInformation, WorkspaceSymbol, WorkspaceSymbolLocation, WorkspaceSymbolOptions,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 pub use trace::{LogTraceParams, SetTraceParams, TraceValue};
 pub use window::{

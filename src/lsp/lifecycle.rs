@@ -15,8 +15,9 @@ use super::hierarchy::{CallHierarchyOptions, TypeHierarchyOptions};
 use super::inlay_hint::InlayHintOptions;
 use super::links::DocumentLinkOptions;
 use super::notebook::NotebookDocumentSyncOptions;
+use super::progress::WorkDoneProgressOptions;
 use super::semantic_tokens::SemanticTokensOptions;
-use super::symbols::WorkspaceSymbolOptions;
+use super::symbols::{DocumentSymbolOptions, WorkspaceSymbolOptions};
 use super::workspace::{ExecuteCommandOptions, WorkspaceFolder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -496,31 +497,31 @@ pub struct ServerCapabilities {
     pub text_document_sync: Option<super::document::TextDocumentSyncCapability>,
     /// Whether the server provides hover support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hover_provider: Option<bool>,
+    pub hover_provider: Option<HoverProviderCapability>,
     /// Completion support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_provider: Option<CompletionOptions>,
     /// Whether the server provides goto-definition support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub definition_provider: Option<bool>,
+    pub definition_provider: Option<DefinitionProviderCapability>,
     /// Whether the server provides goto-declaration support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub declaration_provider: Option<bool>,
+    pub declaration_provider: Option<DeclarationProviderCapability>,
     /// Whether the server provides goto-type-definition support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub type_definition_provider: Option<bool>,
+    pub type_definition_provider: Option<TypeDefinitionProviderCapability>,
     /// Whether the server provides goto-implementation support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub implementation_provider: Option<bool>,
+    pub implementation_provider: Option<ImplementationProviderCapability>,
     /// Whether the server provides find-references support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub references_provider: Option<bool>,
+    pub references_provider: Option<ReferencesProviderCapability>,
     /// Whether the server provides document-highlight support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document_highlight_provider: Option<bool>,
+    pub document_highlight_provider: Option<DocumentHighlightProviderCapability>,
     /// Whether the server provides document-symbol support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document_symbol_provider: Option<bool>,
+    pub document_symbol_provider: Option<DocumentSymbolProviderCapability>,
     /// Whether the server provides workspace-symbol support (optionally with
     /// `workspaceSymbol/resolve`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -539,19 +540,19 @@ pub struct ServerCapabilities {
     pub execute_command_provider: Option<ExecuteCommandOptions>,
     /// Whether the server provides whole-document formatting support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document_formatting_provider: Option<bool>,
+    pub document_formatting_provider: Option<DocumentFormattingProviderCapability>,
     /// Whether the server provides range-formatting support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document_range_formatting_provider: Option<bool>,
+    pub document_range_formatting_provider: Option<DocumentRangeFormattingProviderCapability>,
     /// On-type formatting support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_on_type_formatting_provider: Option<DocumentOnTypeFormattingOptions>,
     /// Whether the server provides folding-range support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub folding_range_provider: Option<bool>,
+    pub folding_range_provider: Option<FoldingRangeProviderCapability>,
     /// Whether the server provides selection-range support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selection_range_provider: Option<bool>,
+    pub selection_range_provider: Option<SelectionRangeProviderCapability>,
     /// Code-lens support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_lens_provider: Option<CodeLensOptions>,
@@ -561,7 +562,7 @@ pub struct ServerCapabilities {
     /// Whether the server provides document-color/color-presentation
     /// support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color_provider: Option<bool>,
+    pub color_provider: Option<ColorProviderCapability>,
     /// Semantic-tokens support and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_tokens_provider: Option<SemanticTokensOptions>,
@@ -588,15 +589,15 @@ pub struct ServerCapabilities {
     pub notebook_document_sync: Option<NotebookDocumentSyncOptions>,
     /// Whether the server provides `textDocument/moniker` support (LSP 3.16).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moniker_provider: Option<bool>,
+    pub moniker_provider: Option<MonikerProviderCapability>,
     /// Whether the server provides `textDocument/linkedEditingRange` support
     /// (LSP 3.16).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub linked_editing_range_provider: Option<bool>,
+    pub linked_editing_range_provider: Option<LinkedEditingRangeProviderCapability>,
     /// Whether the server provides `textDocument/inlineValue` support
     /// (LSP 3.17).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline_value_provider: Option<bool>,
+    pub inline_value_provider: Option<InlineValueProviderCapability>,
     /// Whether the server provides `textDocument/inlineCompletion` support
     /// (LSP 3.18, proposed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -785,6 +786,226 @@ pub enum TypeHierarchyProviderCapability {
 impl Default for TypeHierarchyProviderCapability {
     fn default() -> Self {
         TypeHierarchyProviderCapability::Simple(false)
+    }
+}
+
+/// Generates a `boolean | WorkDoneProgressOptions` provider-capability enum
+/// (the shape shared by every provider whose only server-side option is
+/// work-done-progress support), plus its `Default` and `From<bool>` impls.
+macro_rules! work_done_progress_provider_capability {
+    ($(#[$meta:meta])* $name:ident, $method:literal) => {
+        $(#[$meta])*
+        #[doc = concat!(
+            "Either a plain boolean or [`WorkDoneProgressOptions`], matching \
+             the spec's `boolean | ", $method, "Options` shape."
+        )]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(untagged)]
+        pub enum $name {
+            /// `true`/`false`: the provider is (not) supported.
+            Simple(bool),
+            /// The provider is supported with the given options.
+            Options(WorkDoneProgressOptions),
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                $name::Simple(false)
+            }
+        }
+
+        impl From<bool> for $name {
+            fn from(supported: bool) -> Self {
+                $name::Simple(supported)
+            }
+        }
+    };
+}
+
+work_done_progress_provider_capability!(
+    /// Matches `hoverProvider`.
+    HoverProviderCapability,
+    "Hover"
+);
+work_done_progress_provider_capability!(
+    /// Matches `definitionProvider`.
+    DefinitionProviderCapability,
+    "Definition"
+);
+work_done_progress_provider_capability!(
+    /// Matches `declarationProvider` (LSP 3.14).
+    DeclarationProviderCapability,
+    "Declaration"
+);
+work_done_progress_provider_capability!(
+    /// Matches `typeDefinitionProvider` (LSP 3.6).
+    TypeDefinitionProviderCapability,
+    "TypeDefinition"
+);
+work_done_progress_provider_capability!(
+    /// Matches `implementationProvider` (LSP 3.6).
+    ImplementationProviderCapability,
+    "Implementation"
+);
+work_done_progress_provider_capability!(
+    /// Matches `referencesProvider`.
+    ReferencesProviderCapability,
+    "Reference"
+);
+work_done_progress_provider_capability!(
+    /// Matches `documentHighlightProvider`.
+    DocumentHighlightProviderCapability,
+    "DocumentHighlight"
+);
+work_done_progress_provider_capability!(
+    /// Matches `documentFormattingProvider`.
+    DocumentFormattingProviderCapability,
+    "DocumentFormatting"
+);
+work_done_progress_provider_capability!(
+    /// Matches `documentRangeFormattingProvider`.
+    DocumentRangeFormattingProviderCapability,
+    "DocumentRangeFormatting"
+);
+work_done_progress_provider_capability!(
+    /// Matches `foldingRangeProvider` (LSP 3.10).
+    FoldingRangeProviderCapability,
+    "FoldingRange"
+);
+work_done_progress_provider_capability!(
+    /// Matches `selectionRangeProvider` (LSP 3.15).
+    SelectionRangeProviderCapability,
+    "SelectionRange"
+);
+work_done_progress_provider_capability!(
+    /// Matches `colorProvider` (LSP 3.6): `textDocument/documentColor` and
+    /// `textDocument/colorPresentation`.
+    ColorProviderCapability,
+    "DocumentColor"
+);
+work_done_progress_provider_capability!(
+    /// Matches `monikerProvider` (LSP 3.16).
+    MonikerProviderCapability,
+    "Moniker"
+);
+work_done_progress_provider_capability!(
+    /// Matches `linkedEditingRangeProvider` (LSP 3.16).
+    LinkedEditingRangeProviderCapability,
+    "LinkedEditingRange"
+);
+work_done_progress_provider_capability!(
+    /// Matches `inlineValueProvider` (LSP 3.17).
+    InlineValueProviderCapability,
+    "InlineValue"
+);
+
+/// Either a plain boolean or [`DocumentSymbolOptions`], matching the spec's
+/// `boolean | DocumentSymbolOptions` shape for `documentSymbolProvider`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DocumentSymbolProviderCapability {
+    /// `true`/`false`: document symbols are (not) supported, with no label.
+    Simple(bool),
+    /// Document symbols are supported with the given options.
+    Options(DocumentSymbolOptions),
+}
+
+impl Default for DocumentSymbolProviderCapability {
+    fn default() -> Self {
+        DocumentSymbolProviderCapability::Simple(false)
+    }
+}
+
+impl From<bool> for DocumentSymbolProviderCapability {
+    fn from(supported: bool) -> Self {
+        DocumentSymbolProviderCapability::Simple(supported)
+    }
+}
+
+#[cfg(test)]
+mod provider_capability_union_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn simple_variant_serializes_as_a_bare_bool() {
+        assert_eq!(
+            serde_json::to_value(HoverProviderCapability::Simple(true)).unwrap(),
+            json!(true)
+        );
+        assert_eq!(
+            serde_json::to_value(DefinitionProviderCapability::from(false)).unwrap(),
+            json!(false)
+        );
+    }
+
+    #[test]
+    fn options_variant_serializes_work_done_progress() {
+        let value = serde_json::to_value(FoldingRangeProviderCapability::Options(
+            WorkDoneProgressOptions {
+                work_done_progress: Some(true),
+            },
+        ))
+        .unwrap();
+        assert_eq!(value, json!({"workDoneProgress": true}));
+    }
+
+    #[test]
+    fn deserializes_either_shape() {
+        let simple: ColorProviderCapability = serde_json::from_value(json!(true)).unwrap();
+        assert_eq!(simple, ColorProviderCapability::Simple(true));
+
+        let options: ColorProviderCapability =
+            serde_json::from_value(json!({"workDoneProgress": false})).unwrap();
+        assert_eq!(
+            options,
+            ColorProviderCapability::Options(WorkDoneProgressOptions {
+                work_done_progress: Some(false)
+            })
+        );
+    }
+
+    #[test]
+    fn default_is_simple_false() {
+        assert_eq!(
+            MonikerProviderCapability::default(),
+            MonikerProviderCapability::Simple(false)
+        );
+        assert_eq!(
+            LinkedEditingRangeProviderCapability::default(),
+            LinkedEditingRangeProviderCapability::Simple(false)
+        );
+        assert_eq!(
+            DocumentSymbolProviderCapability::default(),
+            DocumentSymbolProviderCapability::Simple(false)
+        );
+    }
+
+    #[test]
+    fn from_bool_migrates_old_call_sites() {
+        let caps: DeclarationProviderCapability = true.into();
+        assert_eq!(caps, DeclarationProviderCapability::Simple(true));
+    }
+
+    #[test]
+    fn document_symbol_provider_capability_advertises_label() {
+        let value = serde_json::to_value(DocumentSymbolProviderCapability::Options(
+            DocumentSymbolOptions {
+                work_done_progress: None,
+                label: Some("Rust Analyzer".to_owned()),
+            },
+        ))
+        .unwrap();
+        assert_eq!(value, json!({"label": "Rust Analyzer"}));
+    }
+
+    #[test]
+    fn server_capabilities_default_still_works() {
+        // All 16 new fields must have working Default impls so
+        // ServerCapabilities::default() (used pervasively via
+        // `..Default::default()`) keeps compiling and round-tripping to `{}`.
+        let caps = ServerCapabilities::default();
+        assert_eq!(serde_json::to_value(&caps).unwrap(), json!({}));
     }
 }
 

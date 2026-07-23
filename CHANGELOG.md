@@ -92,6 +92,45 @@ each release.
   `for_call_hierarchy`/`for_type_hierarchy` builders. `Registration::new`
   (the raw-JSON escape hatch) is unchanged and still works for anything
   not covered here.
+- `WorkDoneProgressOptions` (in `progress`): the `{ workDoneProgress?:
+  boolean }` mixin the spec applies to many `ServerCapabilities` provider
+  option shapes, shared by the 15 provider-capability enums below rather
+  than duplicated per method.
+- `DocumentSymbolOptions` (in `symbols`): `work_done_progress` plus
+  `label` (LSP 3.16), the options shape for `documentSymbolProvider`.
+
+### Changed
+
+- **Breaking**: 16 `ServerCapabilities` fields that were `Option<bool>`
+  are now `Option<XProviderCapability>`, an untagged `Simple(bool) |
+  Options(...)` enum — matching the spec's `boolean | XOptions` shape and
+  the pattern already used by `code_action_provider`/`rename_provider`/
+  `workspace_symbol_provider`/`call_hierarchy_provider`/
+  `type_hierarchy_provider`. Affected: `hover_provider`
+  (`HoverProviderCapability`), `definition_provider`
+  (`DefinitionProviderCapability`), `declaration_provider`
+  (`DeclarationProviderCapability`), `type_definition_provider`
+  (`TypeDefinitionProviderCapability`), `implementation_provider`
+  (`ImplementationProviderCapability`), `references_provider`
+  (`ReferencesProviderCapability`), `document_highlight_provider`
+  (`DocumentHighlightProviderCapability`), `document_symbol_provider`
+  (`DocumentSymbolProviderCapability`, the one with an extra `label`
+  field), `document_formatting_provider`
+  (`DocumentFormattingProviderCapability`),
+  `document_range_formatting_provider`
+  (`DocumentRangeFormattingProviderCapability`), `folding_range_provider`
+  (`FoldingRangeProviderCapability`), `selection_range_provider`
+  (`SelectionRangeProviderCapability`), `color_provider`
+  (`ColorProviderCapability`), `moniker_provider`
+  (`MonikerProviderCapability`), `linked_editing_range_provider`
+  (`LinkedEditingRangeProviderCapability`), and `inline_value_provider`
+  (`InlineValueProviderCapability`). `inline_completion_provider` is
+  **not** included — it tracks LSP 3.18, which is still proposed.
+  Migration: `Some(true)`/`Some(false)` literals become
+  `Some(true.into())`/`Some(false.into())` (every new enum implements
+  `From<bool>`), or match on `Simple`/`Options` directly. The wire format
+  is unchanged: a `Simple(bool)` value serializes identically to a bare
+  `true`/`false`, so this is a Rust-API-only break, not a protocol one.
 
 ## [0.6.2] — 2026-07-17
 
