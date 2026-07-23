@@ -152,6 +152,7 @@ mod tests {
             completion_item: Some(CompletionOptionsCompletionItem {
                 label_details_support: Some(true),
             }),
+            ..Default::default()
         };
         assert_eq!(
             serde_json::to_value(&options).unwrap(),
@@ -161,6 +162,35 @@ mod tests {
                 "resolveProvider": true,
                 "completionItem": {"labelDetailsSupport": true},
             })
+        );
+    }
+
+    #[test]
+    fn completion_options_advertise_work_done_progress() {
+        let options = CompletionOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(CompletionOptions::default()).unwrap(),
+            json!({})
+        );
+    }
+
+    #[test]
+    fn signature_help_options_advertise_work_done_progress() {
+        let options = SignatureHelpOptions {
+            work_done_progress: Some(true),
+            trigger_characters: vec!["(".to_owned()],
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true, "triggerCharacters": ["("]})
         );
     }
 
@@ -480,6 +510,9 @@ pub enum WorkspaceFoldersChangeNotifications {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Characters that trigger completion automatically.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trigger_characters: Vec<String>,
@@ -511,6 +544,9 @@ pub struct CompletionOptionsCompletionItem {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureHelpOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Characters that trigger signature help automatically.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trigger_characters: Vec<String>,

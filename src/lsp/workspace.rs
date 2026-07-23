@@ -368,6 +368,9 @@ pub struct ExecuteCommandParams {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteCommandOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// The command identifiers the server accepts.
     pub commands: Vec<String>,
 }
@@ -467,5 +470,25 @@ mod tests {
         };
         let value = serde_json::to_value(&event).unwrap();
         assert_eq!(value, json!({"uri": "file:///a", "type": 2}));
+    }
+
+    #[test]
+    fn execute_command_options_advertise_work_done_progress() {
+        let options = ExecuteCommandOptions {
+            work_done_progress: Some(true),
+            commands: vec!["my.command".to_owned()],
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true, "commands": ["my.command"]})
+        );
+        let options = ExecuteCommandOptions {
+            work_done_progress: None,
+            commands: vec![],
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"commands": []})
+        );
     }
 }

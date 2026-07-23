@@ -16,6 +16,11 @@ Entries accumulate here until the next version bump.
 - Servers can now advertise `workspace.workspaceFolders` support
   (`ServerCapabilities.workspace.workspace_folders`), so clients know
   whether to expect `workspace/didChangeWorkspaceFolders` notifications.
+- Eleven more capability-option structs (completion, signature help, code
+  action, rename, execute-command, code lens, document link, semantic
+  tokens, inlay hint, diagnostic, and workspace-symbol) can now advertise
+  work-done-progress support, matching the pattern call/type hierarchy
+  already had.
 
 ---
 

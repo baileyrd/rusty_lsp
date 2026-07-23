@@ -140,6 +140,9 @@ pub enum SemanticTokensFullOptions {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// The token/modifier legend every token's indices refer to.
     pub legend: SemanticTokensLegend,
     /// Whether `textDocument/semanticTokens/range` is supported.
@@ -201,6 +204,23 @@ mod tests {
             serde_json::to_value(SemanticTokensFullOptions::Delta { delta: Some(true) }).unwrap(),
             json!({"delta": true})
         );
+    }
+
+    #[test]
+    fn semantic_tokens_options_advertise_work_done_progress() {
+        let options = SemanticTokensOptions {
+            work_done_progress: Some(true),
+            legend: SemanticTokensLegend {
+                token_types: vec!["keyword".to_owned()],
+                token_modifiers: vec![],
+            },
+            range: None,
+            full: None,
+        };
+        let value = serde_json::to_value(&options).unwrap();
+        assert_eq!(value["workDoneProgress"], json!(true));
+        assert!(value.get("range").is_none());
+        assert!(value.get("full").is_none());
     }
 }
 

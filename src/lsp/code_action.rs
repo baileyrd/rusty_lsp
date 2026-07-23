@@ -171,6 +171,9 @@ pub struct Command {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// The kinds of code action the server may return, if it wants to
     /// advertise them upfront.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -205,5 +208,21 @@ mod tests {
         let value = serde_json::to_value(&command).unwrap();
         assert_eq!(value["command"], json!("my.command"));
         assert!(value.get("edit").is_none());
+    }
+
+    #[test]
+    fn code_action_options_advertise_work_done_progress() {
+        let options = CodeActionOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(CodeActionOptions::default()).unwrap(),
+            json!({})
+        );
     }
 }
