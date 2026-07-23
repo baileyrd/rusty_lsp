@@ -35,6 +35,10 @@ Entries accumulate here until the next version bump.
 - `.text_document()` grows nine more groups: code action, code lens,
   document link, color provider, the formatting family, rename, folding
   range, selection range, and publish-diagnostics.
+- `.text_document()` finishes with its last eight groups (call hierarchy,
+  semantic tokens, linked-editing range, moniker, type hierarchy, inline
+  value, inlay hint, diagnostic) — every `ClientCapabilities.textDocument.*`
+  group the spec defines is now a typed field somewhere on this accessor.
 
 ---
 

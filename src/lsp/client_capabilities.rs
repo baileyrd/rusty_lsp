@@ -412,12 +412,13 @@ pub struct GotoClientCapabilities {
 }
 
 /// `ClientCapabilities.textDocument`: capabilities specific to a single
-/// document, as opposed to the workspace as a whole. Extended by later
-/// typed-capability work to cover the full spec surface; this module
-/// currently models: document sync, completion, hover, signature help, the
-/// "go to" family, references, document highlight, document symbol, code
-/// action, code lens, document link, color provider, the formatting family,
-/// rename, folding range, selection range, and publish-diagnostics.
+/// document, as opposed to the workspace as a whole. Models the full spec
+/// surface: document sync, completion, hover, signature help, the "go to"
+/// family, references, document highlight, document symbol, code action,
+/// code lens, document link, color provider, the formatting family, rename,
+/// folding range, selection range, publish-diagnostics, call hierarchy,
+/// semantic tokens, linked-editing range, moniker, type hierarchy, inline
+/// value, inlay hint, and diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentClientCapabilities {
@@ -489,6 +490,31 @@ pub struct TextDocumentClientCapabilities {
     /// `textDocument/publishDiagnostics` capabilities.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
+    /// Call-hierarchy capabilities (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_hierarchy: Option<DynamicRegistrationCapability>,
+    /// `textDocument/semanticTokens` capabilities (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_tokens: Option<SemanticTokensClientCapabilities>,
+    /// `textDocument/linkedEditingRange` capabilities (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_editing_range: Option<DynamicRegistrationCapability>,
+    /// `textDocument/moniker` capabilities (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moniker: Option<DynamicRegistrationCapability>,
+    /// Type-hierarchy capabilities (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_hierarchy: Option<DynamicRegistrationCapability>,
+    /// `textDocument/inlineValue` capabilities (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_value: Option<DynamicRegistrationCapability>,
+    /// `textDocument/inlayHint` capabilities (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inlay_hint: Option<InlayHintClientCapabilities>,
+    /// `textDocument/diagnostic`/`workspace/diagnostic` capabilities
+    /// (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<DiagnosticClientCapabilities>,
 }
 
 /// `ClientCapabilities.textDocument.synchronization`.
@@ -834,6 +860,139 @@ pub struct PublishDiagnosticsClientCapabilities {
     /// (LSP 3.16).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_support: Option<bool>,
+}
+
+/// Well-known [`TokenFormat`] values from the spec (currently just
+/// `"relative"`). Like [`crate::lsp::CodeActionKind`], this is an open
+/// string enum, so these are plain constants rather than a closed Rust enum.
+pub mod token_format {
+    /// Tokens are encoded relative to the previous token (the only format
+    /// the spec currently defines).
+    pub const RELATIVE: &str = "relative";
+}
+
+/// A [`TokenFormat`] value, e.g. `"relative"`. An open string enum per the
+/// spec (see the [`token_format`] module for well-known values), not a
+/// closed Rust enum.
+pub type TokenFormat = String;
+
+/// `ClientCapabilities.textDocument.semanticTokens` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensClientCapabilities {
+    /// Whether the client supports dynamic registration for semantic
+    /// tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// Which of `textDocument/semanticTokens/range` and `/full` (optionally
+    /// with `/full/delta`) the client will request.
+    #[serde(default)]
+    pub requests: SemanticTokensRequestsCapability,
+    /// The token types the client understands, beyond the spec's standard
+    /// set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_types: Vec<String>,
+    /// The token modifiers the client understands, beyond the spec's
+    /// standard set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_modifiers: Vec<String>,
+    /// The token-array encodings the client understands.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub formats: Vec<TokenFormat>,
+    /// The client supports overlapping tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlapping_token_support: Option<bool>,
+    /// The client supports tokens spanning multiple lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiline_token_support: Option<bool>,
+    /// The client can cancel a semantic-tokens request mid-computation and
+    /// have the server terminate normally rather than send a full response
+    /// (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_cancel_support: Option<bool>,
+    /// The client merges this server's tokens with another semantic-tokens
+    /// provider's instead of the two conflicting (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub augments_syntax_tokens: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.semanticTokens.requests`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensRequestsCapability {
+    /// The client's support for `textDocument/semanticTokens/range`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<SemanticTokensRangeClientCapability>,
+    /// The client's support for `textDocument/semanticTokens/full`
+    /// (optionally `full/delta`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full: Option<SemanticTokensFullClientCapability>,
+}
+
+/// The `range` member of [`SemanticTokensRequestsCapability`]: a plain
+/// boolean, or an empty object (semantically equivalent — the spec allows
+/// both, reserving the object form for future extension).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SemanticTokensRangeClientCapability {
+    /// `true`/`false`: range requests are (not) supported.
+    Simple(bool),
+    /// Range requests are supported; reserved for future options.
+    Options(EmptyCapability),
+}
+
+/// The `full` member of [`SemanticTokensRequestsCapability`]: a plain
+/// boolean, or an object opting into `full/delta` as well.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SemanticTokensFullClientCapability {
+    /// `true`/`false`: full-document tokens are (not) supported, with no
+    /// opinion on delta support.
+    Simple(bool),
+    /// Full-document tokens are supported, with delta support as given.
+    Options(SemanticTokensFullClientCapabilityOptions),
+}
+
+/// The options form of [`SemanticTokensFullClientCapability`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensFullClientCapabilityOptions {
+    /// The client also requests `textDocument/semanticTokens/full/delta`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<bool>,
+}
+
+/// An empty JSON object (`{}`), used where the spec allows an object form
+/// with no members today, reserved for future extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct EmptyCapability {}
+
+/// `ClientCapabilities.textDocument.inlayHint` (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlayHintClientCapabilities {
+    /// Whether the client supports dynamic registration for inlay hints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// Which `InlayHint` properties the client can resolve lazily via
+    /// `inlayHint/resolve`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolve_support: Option<ResolveSupportCapability>,
+}
+
+/// `ClientCapabilities.textDocument.diagnostic` (LSP 3.17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticClientCapabilities {
+    /// Whether the client supports dynamic registration for pull
+    /// diagnostics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client supports `DocumentDiagnosticReportKind::Full`'s
+    /// `related_documents` (diagnostics for documents other than the one
+    /// requested, e.g. a header file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related_document_support: Option<bool>,
 }
 
 #[cfg(test)]
@@ -1235,5 +1394,93 @@ mod tests {
         assert_eq!(diagnostics.version_support, Some(true));
         assert_eq!(diagnostics.code_description_support, Some(true));
         assert_eq!(diagnostics.data_support, Some(true));
+    }
+
+    #[test]
+    fn text_document_client_capabilities_parses_advanced_group_b() {
+        let value = json!({
+            "callHierarchy": {"dynamicRegistration": true},
+            "semanticTokens": {
+                "dynamicRegistration": true,
+                "requests": {"range": true, "full": {"delta": true}},
+                "tokenTypes": ["keyword"],
+                "tokenModifiers": ["readonly"],
+                "formats": ["relative"],
+                "overlappingTokenSupport": true,
+                "multilineTokenSupport": true,
+                "serverCancelSupport": true,
+                "augmentsSyntaxTokens": true,
+            },
+            "linkedEditingRange": {"dynamicRegistration": true},
+            "moniker": {"dynamicRegistration": true},
+            "typeHierarchy": {"dynamicRegistration": true},
+            "inlineValue": {"dynamicRegistration": true},
+            "inlayHint": {"resolveSupport": {"properties": ["tooltip"]}},
+            "diagnostic": {"dynamicRegistration": true, "relatedDocumentSupport": true},
+        });
+        let caps: TextDocumentClientCapabilities = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            caps.call_hierarchy.unwrap().dynamic_registration,
+            Some(true)
+        );
+
+        let tokens = caps.semantic_tokens.unwrap();
+        assert_eq!(tokens.dynamic_registration, Some(true));
+        assert_eq!(
+            tokens.requests.range,
+            Some(SemanticTokensRangeClientCapability::Simple(true))
+        );
+        assert_eq!(
+            tokens.requests.full,
+            Some(SemanticTokensFullClientCapability::Options(
+                SemanticTokensFullClientCapabilityOptions { delta: Some(true) }
+            ))
+        );
+        assert_eq!(tokens.token_types, vec!["keyword".to_owned()]);
+        assert_eq!(tokens.token_modifiers, vec!["readonly".to_owned()]);
+        assert_eq!(tokens.formats, vec![token_format::RELATIVE.to_owned()]);
+        assert_eq!(tokens.overlapping_token_support, Some(true));
+        assert_eq!(tokens.multiline_token_support, Some(true));
+        assert_eq!(tokens.server_cancel_support, Some(true));
+        assert_eq!(tokens.augments_syntax_tokens, Some(true));
+
+        assert_eq!(
+            caps.linked_editing_range.unwrap().dynamic_registration,
+            Some(true)
+        );
+        assert_eq!(caps.moniker.unwrap().dynamic_registration, Some(true));
+        assert_eq!(
+            caps.type_hierarchy.unwrap().dynamic_registration,
+            Some(true)
+        );
+        assert_eq!(caps.inline_value.unwrap().dynamic_registration, Some(true));
+        assert_eq!(
+            caps.inlay_hint.unwrap().resolve_support.unwrap().properties,
+            vec!["tooltip".to_owned()]
+        );
+
+        let diagnostic = caps.diagnostic.unwrap();
+        assert_eq!(diagnostic.dynamic_registration, Some(true));
+        assert_eq!(diagnostic.related_document_support, Some(true));
+    }
+
+    #[test]
+    fn semantic_tokens_range_and_full_accept_the_object_form() {
+        let range: SemanticTokensRangeClientCapability = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(
+            range,
+            SemanticTokensRangeClientCapability::Options(EmptyCapability {})
+        );
+
+        let full: SemanticTokensFullClientCapability =
+            serde_json::from_value(json!(false)).unwrap();
+        assert_eq!(full, SemanticTokensFullClientCapability::Simple(false));
+    }
+
+    #[test]
+    fn semantic_tokens_client_capabilities_defaults_on_empty_object() {
+        let caps: SemanticTokensClientCapabilities = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(caps, SemanticTokensClientCapabilities::default());
     }
 }
