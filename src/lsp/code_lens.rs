@@ -49,6 +49,9 @@ impl CodeLens {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeLensOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Whether the server supports `codeLens/resolve` for lazily filling in
     /// `command`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,6 +71,22 @@ mod tests {
         assert_eq!(
             value,
             json!({"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}})
+        );
+    }
+
+    #[test]
+    fn code_lens_options_advertise_work_done_progress() {
+        let options = CodeLensOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(CodeLensOptions::default()).unwrap(),
+            json!({})
         );
     }
 }

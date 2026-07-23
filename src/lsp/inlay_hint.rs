@@ -106,6 +106,9 @@ pub struct InlayHintLabelPart {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InlayHintOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Whether the server supports `inlayHint/resolve` for lazily filling in
     /// `tooltip`/`text_edits`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,5 +142,21 @@ mod tests {
         }]);
         let value = serde_json::to_value(&parts).unwrap();
         assert_eq!(value[0]["value"], json!("i32"));
+    }
+
+    #[test]
+    fn inlay_hint_options_advertise_work_done_progress() {
+        let options = InlayHintOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(InlayHintOptions::default()).unwrap(),
+            json!({})
+        );
     }
 }

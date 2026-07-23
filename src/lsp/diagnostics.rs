@@ -269,6 +269,9 @@ pub struct WorkspaceUnchangedDocumentDiagnosticReport {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Distinguishes this diagnostic source from others the server may also
     /// provide for the same document.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -377,5 +380,19 @@ mod diagnostic_field_tests {
         assert!(value.get("relatedInformation").is_none());
         assert!(value.get("codeDescription").is_none());
         assert!(value.get("data").is_none());
+    }
+
+    #[test]
+    fn diagnostic_options_advertise_work_done_progress() {
+        let options = DiagnosticOptions {
+            work_done_progress: Some(true),
+            identifier: None,
+            inter_file_dependencies: false,
+            workspace_diagnostics: true,
+        };
+        let value = serde_json::to_value(&options).unwrap();
+        assert_eq!(value["workDoneProgress"], json!(true));
+        assert!(value.get("identifier").is_none());
+        assert_eq!(value["workspaceDiagnostics"], json!(true));
     }
 }

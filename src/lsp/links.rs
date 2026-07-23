@@ -39,6 +39,9 @@ pub struct DocumentLink {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentLinkOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Whether the server supports `documentLink/resolve` for lazily filling
     /// in `target`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,6 +148,22 @@ mod tests {
         assert_eq!(
             value,
             json!({"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0})
+        );
+    }
+
+    #[test]
+    fn document_link_options_advertise_work_done_progress() {
+        let options = DocumentLinkOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(DocumentLinkOptions::default()).unwrap(),
+            json!({})
         );
     }
 }

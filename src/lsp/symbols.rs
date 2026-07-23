@@ -308,8 +308,33 @@ mod tests {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSymbolOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Whether the server resolves ranges lazily via
     /// `workspaceSymbol/resolve`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolve_provider: Option<bool>,
+}
+
+#[cfg(test)]
+mod workspace_symbol_options_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn advertises_work_done_progress() {
+        let options = WorkspaceSymbolOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(WorkspaceSymbolOptions::default()).unwrap(),
+            json!({})
+        );
+    }
 }

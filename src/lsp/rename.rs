@@ -45,6 +45,9 @@ pub enum PrepareRenameResponse {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
     /// Whether the server supports `textDocument/prepareRename`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prepare_provider: Option<bool>,
@@ -97,5 +100,21 @@ mod tests {
         let value = serde_json::to_value(&params).unwrap();
         assert_eq!(value["newName"], json!("renamed"));
         assert!(value.get("new_name").is_none());
+    }
+
+    #[test]
+    fn rename_options_advertise_work_done_progress() {
+        let options = RenameOptions {
+            work_done_progress: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(options).unwrap(),
+            json!({"workDoneProgress": true})
+        );
+        assert_eq!(
+            serde_json::to_value(RenameOptions::default()).unwrap(),
+            json!({})
+        );
     }
 }

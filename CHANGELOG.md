@@ -16,6 +16,13 @@ each release.
   `workspace/didChangeWorkspaceFolders` notifications, matching the LSP 3.17
   `ServerCapabilities.workspace.workspaceFolders` shape. Previously
   `WorkspaceServerCapabilities` only modeled `file_operations`.
+- `work_done_progress: Option<bool>` on `CompletionOptions`,
+  `SignatureHelpOptions`, `CodeActionOptions`, `RenameOptions`,
+  `ExecuteCommandOptions`, `CodeLensOptions`, `DocumentLinkOptions`,
+  `SemanticTokensOptions`, `InlayHintOptions`, `DiagnosticOptions`, and
+  `WorkspaceSymbolOptions` — the same `WorkDoneProgressOptions` mixin
+  `CallHierarchyOptions`/`TypeHierarchyOptions` already had, now applied
+  uniformly across every capability option struct the spec extends it to.
 
 ## [0.6.2] — 2026-07-17
 
