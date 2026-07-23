@@ -4,6 +4,9 @@
 //! statically in [`crate::lsp::ServerCapabilities`].
 
 use super::base::Uri;
+use super::diagnostics::DiagnosticOptions;
+use super::hierarchy::{CallHierarchyOptions, TypeHierarchyOptions};
+use super::semantic_tokens::SemanticTokensOptions;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -360,5 +363,329 @@ mod watcher_tests {
                 },
             })
         );
+    }
+}
+
+/// The `{ id?: string }` shape shared by every `*RegistrationOptions` type
+/// that supports being referenced later by a fixed id, e.g. so a
+/// `workspace/semanticTokens/refresh`-style request can be correlated back
+/// to the registration that produced the tokens being refreshed.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct StaticRegistrationOptions {
+    /// The registration's static id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Registration options shared by every dynamically-registerable method
+/// whose only server-side option is `workDoneProgress` support:
+/// `textDocument/declaration`, `typeDefinition`, `implementation`,
+/// `documentColor`/`colorPresentation`, `foldingRange`, `selectionRange`,
+/// `moniker`, `linkedEditingRange`, and `inlineValue` all share this exact
+/// shape in the spec, so one struct (and matching type aliases below, named
+/// for discoverability) covers all nine rather than nine near-duplicates.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimpleRegistrationOptions {
+    /// The documents the registration applies to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_selector: Option<DocumentSelector>,
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
+    /// The registration's static id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Registration options of `textDocument/declaration` (LSP 3.14).
+pub type DeclarationRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/typeDefinition` (LSP 3.6).
+pub type TypeDefinitionRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/implementation` (LSP 3.6).
+pub type ImplementationRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/documentColor`/`colorPresentation`
+/// (LSP 3.6).
+pub type DocumentColorRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/foldingRange` (LSP 3.10).
+pub type FoldingRangeRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/selectionRange` (LSP 3.15).
+pub type SelectionRangeRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/moniker` (LSP 3.16).
+pub type MonikerRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/linkedEditingRange` (LSP 3.16).
+pub type LinkedEditingRangeRegistrationOptions = SimpleRegistrationOptions;
+/// Registration options of `textDocument/inlineValue` (LSP 3.17).
+pub type InlineValueRegistrationOptions = SimpleRegistrationOptions;
+
+impl Registration {
+    /// Build a registration for one of the [`SimpleRegistrationOptions`]
+    /// methods (see its doc comment for the full list) — like
+    /// [`for_documents`](Self::for_documents), but also carrying
+    /// `work_done_progress`/`id` when the caller wants them set:
+    ///
+    /// ```rust
+    /// use rusty_lsp::lsp::{DocumentFilter, Registration, SimpleRegistrationOptions};
+    ///
+    /// let registration = Registration::for_documents_with_options(
+    ///     "decl-1",
+    ///     "textDocument/declaration",
+    ///     vec![DocumentFilter::language("rust")],
+    ///     SimpleRegistrationOptions {
+    ///         work_done_progress: Some(true),
+    ///         ..Default::default()
+    ///     },
+    /// );
+    /// ```
+    pub fn for_documents_with_options(
+        id: impl Into<String>,
+        method: impl Into<String>,
+        selector: DocumentSelector,
+        options: SimpleRegistrationOptions,
+    ) -> Self {
+        let options = SimpleRegistrationOptions {
+            document_selector: Some(selector),
+            ..options
+        };
+        Registration::new(
+            id,
+            method,
+            Some(serde_json::to_value(options).expect("registration options serialize")),
+        )
+    }
+}
+
+/// Registration options of `textDocument/semanticTokens` (LSP 3.16), covering
+/// both `.../full` and `.../range`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensRegistrationOptions {
+    /// The documents the registration applies to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_selector: Option<DocumentSelector>,
+    /// The semantic-tokens options (legend, range/full support, …).
+    #[serde(flatten)]
+    pub options: SemanticTokensOptions,
+    /// The registration's static id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Registration options of `textDocument/diagnostic` (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticRegistrationOptions {
+    /// The documents the registration applies to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_selector: Option<DocumentSelector>,
+    /// The diagnostic-pull-model options.
+    #[serde(flatten)]
+    pub options: DiagnosticOptions,
+    /// The registration's static id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Registration options of `textDocument/prepareCallHierarchy` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyRegistrationOptions {
+    /// The documents the registration applies to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_selector: Option<DocumentSelector>,
+    /// The call-hierarchy options.
+    #[serde(flatten)]
+    pub options: CallHierarchyOptions,
+    /// The registration's static id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Registration options of `textDocument/prepareTypeHierarchy` (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeHierarchyRegistrationOptions {
+    /// The documents the registration applies to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_selector: Option<DocumentSelector>,
+    /// The type-hierarchy options.
+    #[serde(flatten)]
+    pub options: TypeHierarchyOptions,
+    /// The registration's static id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+impl Registration {
+    /// Build a `textDocument/semanticTokens` registration.
+    pub fn for_semantic_tokens(
+        id: impl Into<String>,
+        selector: DocumentSelector,
+        options: SemanticTokensOptions,
+    ) -> Self {
+        let options = SemanticTokensRegistrationOptions {
+            document_selector: Some(selector),
+            options,
+            id: None,
+        };
+        Registration::new(
+            id,
+            "textDocument/semanticTokens",
+            Some(serde_json::to_value(options).expect("registration options serialize")),
+        )
+    }
+
+    /// Build a `textDocument/diagnostic` registration.
+    pub fn for_diagnostic(
+        id: impl Into<String>,
+        selector: DocumentSelector,
+        options: DiagnosticOptions,
+    ) -> Self {
+        let options = DiagnosticRegistrationOptions {
+            document_selector: Some(selector),
+            options,
+            id: None,
+        };
+        Registration::new(
+            id,
+            "textDocument/diagnostic",
+            Some(serde_json::to_value(options).expect("registration options serialize")),
+        )
+    }
+
+    /// Build a `textDocument/prepareCallHierarchy` registration.
+    pub fn for_call_hierarchy(
+        id: impl Into<String>,
+        selector: DocumentSelector,
+        options: CallHierarchyOptions,
+    ) -> Self {
+        let options = CallHierarchyRegistrationOptions {
+            document_selector: Some(selector),
+            options,
+            id: None,
+        };
+        Registration::new(
+            id,
+            "textDocument/prepareCallHierarchy",
+            Some(serde_json::to_value(options).expect("registration options serialize")),
+        )
+    }
+
+    /// Build a `textDocument/prepareTypeHierarchy` registration.
+    pub fn for_type_hierarchy(
+        id: impl Into<String>,
+        selector: DocumentSelector,
+        options: TypeHierarchyOptions,
+    ) -> Self {
+        let options = TypeHierarchyRegistrationOptions {
+            document_selector: Some(selector),
+            options,
+            id: None,
+        };
+        Registration::new(
+            id,
+            "textDocument/prepareTypeHierarchy",
+            Some(serde_json::to_value(options).expect("registration options serialize")),
+        )
+    }
+}
+
+#[cfg(test)]
+mod typed_registration_options_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn for_documents_with_options_sets_work_done_progress_and_id() {
+        let registration = Registration::for_documents_with_options(
+            "decl-1",
+            "textDocument/declaration",
+            vec![DocumentFilter::language("rust")],
+            SimpleRegistrationOptions {
+                work_done_progress: Some(true),
+                id: Some("static-1".to_owned()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            serde_json::to_value(&registration).unwrap(),
+            json!({
+                "id": "decl-1",
+                "method": "textDocument/declaration",
+                "registerOptions": {
+                    "documentSelector": [{"language": "rust"}],
+                    "workDoneProgress": true,
+                    "id": "static-1",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn for_semantic_tokens_flattens_the_options() {
+        let registration = Registration::for_semantic_tokens(
+            "tok-1",
+            vec![DocumentFilter::language("rust")],
+            SemanticTokensOptions {
+                work_done_progress: None,
+                legend: super::super::semantic_tokens::SemanticTokensLegend {
+                    token_types: vec!["keyword".to_owned()],
+                    token_modifiers: vec![],
+                },
+                range: Some(true),
+                full: None,
+            },
+        );
+        let value = serde_json::to_value(&registration).unwrap();
+        assert_eq!(value["method"], json!("textDocument/semanticTokens"));
+        assert_eq!(
+            value["registerOptions"]["documentSelector"][0]["language"],
+            json!("rust")
+        );
+        assert_eq!(
+            value["registerOptions"]["legend"]["tokenTypes"][0],
+            json!("keyword")
+        );
+        assert_eq!(value["registerOptions"]["range"], json!(true));
+        assert!(value["registerOptions"].get("id").is_none());
+    }
+
+    #[test]
+    fn for_diagnostic_flattens_the_options() {
+        let registration = Registration::for_diagnostic(
+            "diag-1",
+            vec![DocumentFilter::language("rust")],
+            DiagnosticOptions {
+                identifier: Some("clippy".to_owned()),
+                inter_file_dependencies: true,
+                workspace_diagnostics: true,
+                ..Default::default()
+            },
+        );
+        let value = serde_json::to_value(&registration).unwrap();
+        assert_eq!(value["registerOptions"]["identifier"], json!("clippy"));
+        assert_eq!(
+            value["registerOptions"]["interFileDependencies"],
+            json!(true)
+        );
+        assert_eq!(
+            value["registerOptions"]["workspaceDiagnostics"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn for_call_hierarchy_and_type_hierarchy_use_the_prepare_methods() {
+        let selector = vec![DocumentFilter::language("rust")];
+        let call = Registration::for_call_hierarchy(
+            "ch-1",
+            selector.clone(),
+            CallHierarchyOptions::default(),
+        );
+        assert_eq!(call.method, "textDocument/prepareCallHierarchy");
+
+        let ty =
+            Registration::for_type_hierarchy("th-1", selector, TypeHierarchyOptions::default());
+        assert_eq!(ty.method, "textDocument/prepareTypeHierarchy");
     }
 }

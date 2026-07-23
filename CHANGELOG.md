@@ -76,6 +76,22 @@ each release.
   string enum, matching the existing `CodeActionKind`/`FoldingRangeKind`
   pattern) and `EmptyCapability` (the spec's `{}` object form where a
   capability is `boolean | {}`).
+- Typed `*RegistrationOptions` and `Registration::for_*` builders for the
+  remaining dynamically-registerable methods: a shared
+  `SimpleRegistrationOptions` (plus spec-named type aliases
+  `DeclarationRegistrationOptions`, `TypeDefinitionRegistrationOptions`,
+  `ImplementationRegistrationOptions`, `DocumentColorRegistrationOptions`,
+  `FoldingRangeRegistrationOptions`, `SelectionRangeRegistrationOptions`,
+  `MonikerRegistrationOptions`, `LinkedEditingRangeRegistrationOptions`,
+  `InlineValueRegistrationOptions`) for the nine methods whose only
+  registration option is `workDoneProgress` support, built via
+  `Registration::for_documents_with_options`; and dedicated
+  `SemanticTokensRegistrationOptions`/`DiagnosticRegistrationOptions`/
+  `CallHierarchyRegistrationOptions`/`TypeHierarchyRegistrationOptions`
+  with matching `Registration::for_semantic_tokens`/`for_diagnostic`/
+  `for_call_hierarchy`/`for_type_hierarchy` builders. `Registration::new`
+  (the raw-JSON escape hatch) is unchanged and still works for anything
+  not covered here.
 
 ## [0.6.2] — 2026-07-17
 

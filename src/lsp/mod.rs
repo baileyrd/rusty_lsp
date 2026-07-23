@@ -153,9 +153,16 @@ pub use ranges::{
     LinkedEditingRanges, SelectionRange, SelectionRangeParams, folding_range_kind,
 };
 pub use registration::{
-    DidChangeWatchedFilesRegistrationOptions, DocumentFilter, DocumentSelector, FileSystemWatcher,
-    GlobPattern, Registration, RegistrationParams, RelativePattern,
-    TextDocumentRegistrationOptions, Unregistration, UnregistrationParams, watch_kind,
+    CallHierarchyRegistrationOptions, DeclarationRegistrationOptions,
+    DiagnosticRegistrationOptions, DidChangeWatchedFilesRegistrationOptions,
+    DocumentColorRegistrationOptions, DocumentFilter, DocumentSelector, FileSystemWatcher,
+    FoldingRangeRegistrationOptions, GlobPattern, ImplementationRegistrationOptions,
+    InlineValueRegistrationOptions, LinkedEditingRangeRegistrationOptions,
+    MonikerRegistrationOptions, Registration, RegistrationParams, RelativePattern,
+    SelectionRangeRegistrationOptions, SemanticTokensRegistrationOptions,
+    SimpleRegistrationOptions, StaticRegistrationOptions, TextDocumentRegistrationOptions,
+    TypeDefinitionRegistrationOptions, TypeHierarchyRegistrationOptions, Unregistration,
+    UnregistrationParams, watch_kind,
 };
 pub use rename::{PrepareRenameResponse, RenameOptions, RenameParams};
 pub use semantic_tokens::{
