@@ -6,6 +6,19 @@ log, see [`CHANGELOG.md`](CHANGELOG.md); this page is the narrative version.
 
 ---
 
+## Unreleased
+
+Closing LSP 3.17 spec-coverage gaps found by a full audit against the
+official specification (method/notification coverage was already 100% —
+every remaining gap is at the capability-negotiation/type-modeling layer).
+Entries accumulate here until the next version bump.
+
+- Servers can now advertise `workspace.workspaceFolders` support
+  (`ServerCapabilities.workspace.workspace_folders`), so clients know
+  whether to expect `workspace/didChangeWorkspaceFolders` notifications.
+
+---
+
 ## v0.6.2 — Closing the concurrency gap
 
 *2026-07-17*

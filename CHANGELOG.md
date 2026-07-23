@@ -6,6 +6,17 @@ All notable changes to `rusty_lsp` are documented here. The format follows
 See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the narrative version of
 each release.
 
+## [Unreleased]
+
+### Added
+
+- `WorkspaceServerCapabilities::workspace_folders`
+  (`WorkspaceFoldersServerCapabilities { supported, change_notifications }`):
+  advertise multi-root workspace support and interest in
+  `workspace/didChangeWorkspaceFolders` notifications, matching the LSP 3.17
+  `ServerCapabilities.workspace.workspaceFolders` shape. Previously
+  `WorkspaceServerCapabilities` only modeled `file_operations`.
+
 ## [0.6.2] — 2026-07-17
 
 ### Fixed
