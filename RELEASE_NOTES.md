@@ -21,6 +21,10 @@ Entries accumulate here until the next version bump.
   tokens, inlay hint, diagnostic, and workspace-symbol) can now advertise
   work-done-progress support, matching the pattern call/type hierarchy
   already had.
+- `ClientCapabilities` gains its first typed sub-tree accessor:
+  `.workspace()` parses the client's `workspace` capabilities into a real
+  Rust struct instead of dotted-path JSON lookups. The raw JSON escape
+  hatch stays exactly as it was — this is purely additive.
 
 ---
 

@@ -11,6 +11,7 @@
 //! integer discriminants for the enums in [`enums`].
 
 pub mod base;
+pub mod client_capabilities;
 pub mod code_action;
 pub mod code_lens;
 pub mod diagnostics;
@@ -41,6 +42,13 @@ pub mod workspace;
 pub use base::{
     Location, Position, Range, TextDocumentIdentifier, TextDocumentItem,
     TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier,
+};
+pub use client_capabilities::{
+    ChangeAnnotationSupportCapability, DidChangeWatchedFilesClientCapabilities,
+    DynamicRegistrationCapability, FailureHandlingKind, FileOperationClientCapabilities,
+    RefreshSupportCapability, ResolveSupportCapability, ResourceOperationKind,
+    SymbolKindCapability, TagSupportCapability, WorkspaceClientCapabilities,
+    WorkspaceEditClientCapabilities, WorkspaceSymbolClientCapabilities,
 };
 pub use code_action::{
     CodeAction, CodeActionContext, CodeActionDisabled, CodeActionKind, CodeActionOptions,

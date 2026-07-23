@@ -2,6 +2,7 @@
 //! capability negotiation that rides along with them.
 
 use super::base::Uri;
+use super::client_capabilities::WorkspaceClientCapabilities;
 use super::code_lens::CodeLensOptions;
 use super::diagnostics::DiagnosticOptions;
 use super::enums::PositionEncodingKind;
@@ -215,6 +216,32 @@ mod tests {
         assert!(!caps.supports("textDocument.codeAction")); // missing entirely
         assert!(!caps.supports("workspace.applyEdit")); // missing top-level segment
     }
+
+    #[test]
+    fn workspace_accessor_parses_the_workspace_subtree() {
+        let caps: ClientCapabilities = serde_json::from_value(json!({
+            "workspace": {"applyEdit": true, "workspaceFolders": true},
+        }))
+        .unwrap();
+        let workspace = caps.workspace();
+        assert_eq!(workspace.apply_edit, Some(true));
+        assert_eq!(workspace.workspace_folders, Some(true));
+        assert_eq!(workspace.configuration, None);
+
+        // Missing `workspace` and a malformed one both degrade to the default
+        // rather than erroring — this is untrusted client data.
+        let empty = ClientCapabilities::default();
+        assert_eq!(empty.workspace(), WorkspaceClientCapabilities::default());
+
+        let malformed: ClientCapabilities = serde_json::from_value(json!({
+            "workspace": "not an object",
+        }))
+        .unwrap();
+        assert_eq!(
+            malformed.workspace(),
+            WorkspaceClientCapabilities::default()
+        );
+    }
 }
 
 /// Information about the client implementation.
@@ -304,6 +331,24 @@ impl ClientCapabilities {
             self.get(path),
             None | Some(Value::Null) | Some(Value::Bool(false))
         )
+    }
+
+    /// Parse the `workspace` sub-object into a typed
+    /// [`WorkspaceClientCapabilities`] — an additive convenience view over
+    /// the same data [`get`](Self::get)/[`supports`](Self::supports) already
+    /// expose, for the capability group a server most often needs to branch
+    /// on as a whole rather than one dotted path at a time.
+    ///
+    /// A missing `workspace` object, or one whose shape doesn't match the
+    /// spec, comes back as [`WorkspaceClientCapabilities::default`] (all
+    /// fields absent) rather than erroring — client-supplied data is
+    /// untrusted, and a slightly-off announcement shouldn't be able to crash
+    /// a server that calls this.
+    pub fn workspace(&self) -> WorkspaceClientCapabilities {
+        self.raw
+            .get("workspace")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
     }
 }
 
