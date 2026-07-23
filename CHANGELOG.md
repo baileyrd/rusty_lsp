@@ -35,6 +35,11 @@ each release.
   refresh-support flags, and file-operation capabilities. `raw` and the
   existing dotted-path `get`/`supports` helpers are unchanged — this is a
   purely additive, typed convenience layer on top of the same data.
+- `ClientCapabilities::window()`, `::general()`, and `::notebook_document()`:
+  the same typed-accessor treatment for `window` (`workDoneProgress`,
+  `showMessageRequest`/`showDocument` capabilities), `general`
+  (`staleRequestSupport`, the client's regex engine/Markdown parser,
+  `positionEncodings`), and `notebookDocument.synchronization`.
 
 ## [0.6.2] — 2026-07-17
 

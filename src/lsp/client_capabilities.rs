@@ -12,7 +12,7 @@
 //! than erroring — client-supplied data is untrusted, and a slightly-off
 //! capability announcement shouldn't be able to crash a server.
 
-use super::enums::{SymbolKind, SymbolTag};
+use super::enums::{PositionEncodingKind, SymbolKind, SymbolTag};
 use serde::{Deserialize, Serialize};
 
 /// The common `{ dynamicRegistration?: boolean }` shape shared by many
@@ -258,6 +258,138 @@ pub struct FileOperationClientCapabilities {
     pub will_delete: Option<bool>,
 }
 
+/// `ClientCapabilities.window`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowClientCapabilities {
+    /// The client supports `window/workDoneProgress/create` (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
+    /// `window/showMessageRequest` capabilities (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_message: Option<ShowMessageClientCapabilities>,
+    /// `window/showDocument` capabilities (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_document: Option<ShowDocumentClientCapabilities>,
+}
+
+/// `ClientCapabilities.window.showMessage` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowMessageClientCapabilities {
+    /// Properties the client supports on `MessageActionItem`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_action_item: Option<MessageActionItemCapability>,
+}
+
+/// `ClientCapabilities.window.showMessage.messageActionItem` (LSP 3.16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageActionItemCapability {
+    /// The client honors extra properties on `MessageActionItem` beyond
+    /// `title`, round-tripping them back in `window/showMessageRequest`'s
+    /// response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_properties_support: Option<bool>,
+}
+
+/// `ClientCapabilities.window.showDocument` (LSP 3.16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowDocumentClientCapabilities {
+    /// The client supports `window/showDocument`. Unlike sibling capability
+    /// flags, the spec marks this required (not optional) once the
+    /// `showDocument` object itself is present.
+    pub support: bool,
+}
+
+/// `ClientCapabilities.general` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneralClientCapabilities {
+    /// The client's support for reviving a request whose response arrived
+    /// after a `ContentModified` error (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_request_support: Option<StaleRequestSupportCapability>,
+    /// The client's regular-expression engine, so a server can avoid
+    /// constructs it doesn't support (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regular_expressions: Option<RegularExpressionsClientCapabilities>,
+    /// The client's Markdown parser, for the same reason (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<MarkdownClientCapabilities>,
+    /// The position encodings the client supports, in decreasing preference
+    /// order (LSP 3.17). See also
+    /// [`ClientCapabilities::position_encodings`](super::lifecycle::ClientCapabilities::position_encodings),
+    /// which reads this same data with the spec's "absent means `[utf-16]`"
+    /// default already applied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub position_encodings: Vec<PositionEncodingKind>,
+}
+
+/// `ClientCapabilities.general.staleRequestSupport` (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleRequestSupportCapability {
+    /// The client retries a cancelled request that the server reports as
+    /// `ContentModified`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<bool>,
+    /// The method names the client retries on `ContentModified`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retry_on_content_modified: Vec<String>,
+}
+
+/// `ClientCapabilities.general.regularExpressions` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegularExpressionsClientCapabilities {
+    /// The regex engine's name (e.g. `"ECMAScript"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+    /// The engine's version string, if relevant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// `ClientCapabilities.general.markdown` (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownClientCapabilities {
+    /// The Markdown parser's name (e.g. `"marked"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parser: Option<String>,
+    /// The parser's version string, if relevant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// HTML tags the parser allows through unescaped (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_tags: Vec<String>,
+}
+
+/// `ClientCapabilities.notebookDocument` (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookDocumentClientCapabilities {
+    /// Notebook document synchronization capabilities — the spec's only
+    /// member of `notebookDocument` today.
+    #[serde(default)]
+    pub synchronization: NotebookDocumentSyncClientCapabilities,
+}
+
+/// `ClientCapabilities.notebookDocument.synchronization` (LSP 3.17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookDocumentSyncClientCapabilities {
+    /// Whether the client supports dynamic registration for notebook
+    /// document sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client shows a cell's `ExecutionSummary` in its notebook UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_summary_support: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +486,84 @@ mod tests {
             serde_json::to_value(FailureHandlingKind::TextOnlyTransactional).unwrap(),
             json!("textOnlyTransactional")
         );
+    }
+
+    #[test]
+    fn window_client_capabilities_parses_a_realistic_payload() {
+        let value = json!({
+            "workDoneProgress": true,
+            "showMessage": {"messageActionItem": {"additionalPropertiesSupport": true}},
+            "showDocument": {"support": true},
+        });
+        let caps: WindowClientCapabilities = serde_json::from_value(value).unwrap();
+        assert_eq!(caps.work_done_progress, Some(true));
+        assert_eq!(
+            caps.show_message
+                .unwrap()
+                .message_action_item
+                .unwrap()
+                .additional_properties_support,
+            Some(true)
+        );
+        assert!(caps.show_document.unwrap().support);
+    }
+
+    #[test]
+    fn window_client_capabilities_defaults_on_empty_object() {
+        let caps: WindowClientCapabilities = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(caps, WindowClientCapabilities::default());
+    }
+
+    #[test]
+    fn general_client_capabilities_parses_a_realistic_payload() {
+        let value = json!({
+            "staleRequestSupport": {
+                "cancel": true,
+                "retryOnContentModified": ["textDocument/rangeFormatting"],
+            },
+            "regularExpressions": {"engine": "ECMAScript", "version": "ES2020"},
+            "markdown": {"parser": "marked", "version": "1.1.0", "allowedTags": ["b", "i"]},
+            "positionEncodings": ["utf-8", "utf-16"],
+        });
+        let caps: GeneralClientCapabilities = serde_json::from_value(value).unwrap();
+
+        let stale = caps.stale_request_support.unwrap();
+        assert_eq!(stale.cancel, Some(true));
+        assert_eq!(
+            stale.retry_on_content_modified,
+            vec!["textDocument/rangeFormatting".to_owned()]
+        );
+        let regex = caps.regular_expressions.unwrap();
+        assert_eq!(regex.engine, Some("ECMAScript".to_owned()));
+        assert_eq!(regex.version, Some("ES2020".to_owned()));
+        let markdown = caps.markdown.unwrap();
+        assert_eq!(markdown.parser, Some("marked".to_owned()));
+        assert_eq!(markdown.allowed_tags, vec!["b".to_owned(), "i".to_owned()]);
+        assert_eq!(
+            caps.position_encodings,
+            vec![PositionEncodingKind::Utf8, PositionEncodingKind::Utf16]
+        );
+    }
+
+    #[test]
+    fn general_client_capabilities_defaults_on_empty_object() {
+        let caps: GeneralClientCapabilities = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(caps, GeneralClientCapabilities::default());
+    }
+
+    #[test]
+    fn notebook_document_client_capabilities_parses_synchronization() {
+        let value = json!({
+            "synchronization": {"dynamicRegistration": true, "executionSummarySupport": true},
+        });
+        let caps: NotebookDocumentClientCapabilities = serde_json::from_value(value).unwrap();
+        assert_eq!(caps.synchronization.dynamic_registration, Some(true));
+        assert_eq!(caps.synchronization.execution_summary_support, Some(true));
+    }
+
+    #[test]
+    fn notebook_document_client_capabilities_defaults_on_empty_object() {
+        let caps: NotebookDocumentClientCapabilities = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(caps, NotebookDocumentClientCapabilities::default());
     }
 }

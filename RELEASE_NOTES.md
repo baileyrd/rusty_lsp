@@ -25,6 +25,9 @@ Entries accumulate here until the next version bump.
   `.workspace()` parses the client's `workspace` capabilities into a real
   Rust struct instead of dotted-path JSON lookups. The raw JSON escape
   hatch stays exactly as it was — this is purely additive.
+- Three more typed accessors: `.window()`, `.general()`, and
+  `.notebook_document()`, rounding out every non-`textDocument` capability
+  group.
 
 ---
 
