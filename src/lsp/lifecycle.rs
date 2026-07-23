@@ -398,8 +398,9 @@ pub struct ServerCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_provider: Option<DiagnosticOptions>,
     /// Workspace-scoped capabilities that nest under `workspace` on the
-    /// wire instead of being top-level fields (currently just
-    /// [`file_operations`](WorkspaceServerCapabilities::file_operations)).
+    /// wire instead of being top-level fields:
+    /// [`workspace_folders`](WorkspaceServerCapabilities::workspace_folders)
+    /// and [`file_operations`](WorkspaceServerCapabilities::file_operations).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceServerCapabilities>,
     /// Call-hierarchy support and its options.
@@ -435,10 +436,44 @@ pub struct ServerCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceServerCapabilities {
+    /// Multi-root workspace support, and interest in
+    /// `workspace/didChangeWorkspaceFolders` notifications.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_folders: Option<WorkspaceFoldersServerCapabilities>,
     /// Which file-operation hooks (`willCreateFiles`, `didRenameFiles`, …)
     /// the server wants to be told about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_operations: Option<FileOperationsServerCapabilities>,
+}
+
+/// The `workspace.workspaceFolders` sub-object of [`ServerCapabilities`]
+/// (via [`WorkspaceServerCapabilities`]): whether the server supports
+/// `workspace/workspaceFolders` and wants
+/// `workspace/didChangeWorkspaceFolders` notifications.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFoldersServerCapabilities {
+    /// Whether the server supports `workspace/workspaceFolders`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported: Option<bool>,
+    /// Whether (and how) the server wants
+    /// `workspace/didChangeWorkspaceFolders` notifications.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_notifications: Option<WorkspaceFoldersChangeNotifications>,
+}
+
+/// The `changeNotifications` member of
+/// [`WorkspaceFoldersServerCapabilities`]: a plain boolean, or a string used
+/// as the id for dynamically (un)registering interest via
+/// `client/registerCapability`/`client/unregisterCapability`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceFoldersChangeNotifications {
+    /// `true`/`false`: send (or don't send) change notifications, with no
+    /// specific dynamic-registration id.
+    Simple(bool),
+    /// Send change notifications under this dynamic-registration id.
+    Id(String),
 }
 
 /// Options describing the server's completion support.
@@ -570,5 +605,65 @@ pub enum TypeHierarchyProviderCapability {
 impl Default for TypeHierarchyProviderCapability {
     fn default() -> Self {
         TypeHierarchyProviderCapability::Simple(false)
+    }
+}
+
+#[cfg(test)]
+mod workspace_folders_capability_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn round_trips_simple_change_notifications() {
+        let caps = WorkspaceServerCapabilities {
+            workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                supported: Some(true),
+                change_notifications: Some(WorkspaceFoldersChangeNotifications::Simple(true)),
+            }),
+            file_operations: None,
+        };
+        let value = serde_json::to_value(&caps).unwrap();
+        assert_eq!(
+            value,
+            json!({"workspaceFolders": {"supported": true, "changeNotifications": true}})
+        );
+    }
+
+    #[test]
+    fn supports_id_change_notifications() {
+        let caps = WorkspaceFoldersServerCapabilities {
+            supported: Some(true),
+            change_notifications: Some(WorkspaceFoldersChangeNotifications::Id("reg-1".to_owned())),
+        };
+        let value = serde_json::to_value(&caps).unwrap();
+        assert_eq!(value["changeNotifications"], json!("reg-1"));
+
+        let parsed: WorkspaceFoldersServerCapabilities =
+            serde_json::from_value(json!({"supported": false, "changeNotifications": "reg-1"}))
+                .unwrap();
+        assert_eq!(
+            parsed.change_notifications,
+            Some(WorkspaceFoldersChangeNotifications::Id("reg-1".to_owned()))
+        );
+    }
+
+    #[test]
+    fn omits_absent_fields() {
+        let caps = WorkspaceFoldersServerCapabilities::default();
+        assert_eq!(serde_json::to_value(&caps).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn coexists_with_file_operations() {
+        let caps = WorkspaceServerCapabilities {
+            workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                supported: Some(true),
+                change_notifications: None,
+            }),
+            file_operations: Some(FileOperationsServerCapabilities::default()),
+        };
+        let value = serde_json::to_value(&caps).unwrap();
+        assert_eq!(value["workspaceFolders"]["supported"], json!(true));
+        assert!(value.get("fileOperations").is_some());
     }
 }
