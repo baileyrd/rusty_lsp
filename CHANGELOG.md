@@ -65,6 +65,17 @@ each release.
   core set; the remaining groups (call hierarchy, semantic tokens,
   linked-editing range, moniker, type hierarchy, inline value, inlay
   hint, diagnostic) follow separately.
+- `TextDocumentClientCapabilities` grows its remaining eight groups:
+  `callHierarchy`, `semanticTokens` (full `requests.range`/`requests.full`
+  union shapes, token types/modifiers/formats, overlapping/multiline token
+  support, `serverCancelSupport`, `augmentsSyntaxTokens`),
+  `linkedEditingRange`, `moniker`, `typeHierarchy`, `inlineValue`,
+  `inlayHint` (resolve support), and `diagnostic` (related-document
+  support) — this completes `ClientCapabilities.textDocument.*` coverage.
+  Also adds `client_capabilities::TokenFormat`/`token_format` (an open
+  string enum, matching the existing `CodeActionKind`/`FoldingRangeKind`
+  pattern) and `EmptyCapability` (the spec's `{}` object form where a
+  capability is `boolean | {}`).
 
 ## [0.6.2] — 2026-07-17
 
