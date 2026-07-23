@@ -28,6 +28,10 @@ Entries accumulate here until the next version bump.
 - Three more typed accessors: `.window()`, `.general()`, and
   `.notebook_document()`, rounding out every non-`textDocument` capability
   group.
+- `.text_document()` starts the `textDocument.*` accessor with its
+  core, most-probed groups: sync, completion, hover, signature help,
+  the go-to-definition family, references, document highlight, and
+  document symbol. The rest of `textDocument.*` follows in later work.
 
 ---
 

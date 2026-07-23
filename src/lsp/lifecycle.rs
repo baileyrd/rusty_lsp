@@ -3,8 +3,8 @@
 
 use super::base::Uri;
 use super::client_capabilities::{
-    GeneralClientCapabilities, NotebookDocumentClientCapabilities, WindowClientCapabilities,
-    WorkspaceClientCapabilities,
+    GeneralClientCapabilities, NotebookDocumentClientCapabilities, TextDocumentClientCapabilities,
+    WindowClientCapabilities, WorkspaceClientCapabilities,
 };
 use super::code_lens::CodeLensOptions;
 use super::diagnostics::DiagnosticOptions;
@@ -275,6 +275,24 @@ mod tests {
             NotebookDocumentClientCapabilities::default()
         );
     }
+
+    #[test]
+    fn text_document_accessor_parses_the_text_document_subtree() {
+        let caps: ClientCapabilities = serde_json::from_value(json!({
+            "textDocument": {"hover": {"contentFormat": ["markdown"]}},
+        }))
+        .unwrap();
+        assert_eq!(
+            caps.text_document().hover.unwrap().content_format,
+            vec![crate::lsp::MarkupKind::Markdown]
+        );
+
+        let empty = ClientCapabilities::default();
+        assert_eq!(
+            empty.text_document(),
+            TextDocumentClientCapabilities::default()
+        );
+    }
 }
 
 /// Information about the client implementation.
@@ -415,6 +433,19 @@ impl ClientCapabilities {
     pub fn notebook_document(&self) -> NotebookDocumentClientCapabilities {
         self.raw
             .get("notebookDocument")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    /// Parse the `textDocument` sub-object into a typed
+    /// [`TextDocumentClientCapabilities`] — see
+    /// [`workspace`](Self::workspace) for the rationale and error-tolerance
+    /// behavior, which apply identically here. Currently covers the core,
+    /// most commonly-probed capability groups; see
+    /// [`TextDocumentClientCapabilities`]'s own doc comment for which ones.
+    pub fn text_document(&self) -> TextDocumentClientCapabilities {
+        self.raw
+            .get("textDocument")
             .and_then(|value| serde_json::from_value(value.clone()).ok())
             .unwrap_or_default()
     }

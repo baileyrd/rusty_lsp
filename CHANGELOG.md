@@ -40,6 +40,17 @@ each release.
   `showMessageRequest`/`showDocument` capabilities), `general`
   (`staleRequestSupport`, the client's regex engine/Markdown parser,
   `positionEncodings`), and `notebookDocument.synchronization`.
+- `enums::InsertTextMode` (LSP 3.16): `AsIs`/`AdjustIndentation`, needed to
+  model completion's insert-text-mode capability faithfully.
+- `ClientCapabilities::text_document()`: a typed accessor for the core
+  `textDocument.*` capability groups — `synchronization`, `completion`
+  (including per-item snippet/commit-character/tag/resolve/insert-mode
+  support and `completionList.itemDefaults`), `hover`, `signatureHelp`,
+  the `declaration`/`definition`/`typeDefinition`/`implementation` "go to"
+  family, `references`, `documentHighlight`, and `documentSymbol`. The
+  remaining `textDocument.*` groups (code action, code lens, semantic
+  tokens, etc.) are tracked as follow-up work; `raw`/`get`/`supports` are
+  unchanged.
 
 ## [0.6.2] — 2026-07-17
 

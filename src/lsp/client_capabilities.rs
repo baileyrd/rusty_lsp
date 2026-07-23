@@ -12,7 +12,10 @@
 //! than erroring — client-supplied data is untrusted, and a slightly-off
 //! capability announcement shouldn't be able to crash a server.
 
-use super::enums::{PositionEncodingKind, SymbolKind, SymbolTag};
+use super::enums::{
+    CompletionItemKind, CompletionItemTag, InsertTextMode, MarkupKind, PositionEncodingKind,
+    SymbolKind, SymbolTag,
+};
 use serde::{Deserialize, Serialize};
 
 /// The common `{ dynamicRegistration?: boolean }` shape shared by many
@@ -390,6 +393,263 @@ pub struct NotebookDocumentSyncClientCapabilities {
     pub execution_summary_support: Option<bool>,
 }
 
+/// The common `{ dynamicRegistration?: boolean; linkSupport?: boolean }`
+/// shape shared by the four "go to" capability groups (`declaration`,
+/// `definition`, `typeDefinition`, `implementation`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GotoClientCapabilities {
+    /// Whether the client supports dynamic registration for this method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client can render `LocationLink` results (a link with an
+    /// `originSelectionRange`/`targetSelectionRange`) instead of a plain
+    /// `Location` (LSP 3.14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument`: capabilities specific to a single
+/// document, as opposed to the workspace as a whole. Extended by later
+/// typed-capability work to cover the full spec surface; this module
+/// currently models the core, most commonly-probed subset (document sync,
+/// completion, hover, signature help, the "go to" family, references,
+/// document highlight, and document symbol).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentClientCapabilities {
+    /// `textDocument/didOpen`/`didChange`/`didClose`/`willSave`/
+    /// `willSaveWaitUntil`/`didSave` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synchronization: Option<TextDocumentSyncClientCapabilities>,
+    /// `textDocument/completion` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion: Option<CompletionClientCapabilities>,
+    /// `textDocument/hover` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hover: Option<HoverClientCapabilities>,
+    /// `textDocument/signatureHelp` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_help: Option<SignatureHelpClientCapabilities>,
+    /// `textDocument/declaration` capabilities (LSP 3.14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<GotoClientCapabilities>,
+    /// `textDocument/definition` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<GotoClientCapabilities>,
+    /// `textDocument/typeDefinition` capabilities (LSP 3.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_definition: Option<GotoClientCapabilities>,
+    /// `textDocument/implementation` capabilities (LSP 3.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implementation: Option<GotoClientCapabilities>,
+    /// `textDocument/references` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references: Option<DynamicRegistrationCapability>,
+    /// `textDocument/documentHighlight` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_highlight: Option<DynamicRegistrationCapability>,
+    /// `textDocument/documentSymbol` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_symbol: Option<DocumentSymbolClientCapabilities>,
+}
+
+/// `ClientCapabilities.textDocument.synchronization`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentSyncClientCapabilities {
+    /// Whether the client supports dynamic registration for document sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client sends `textDocument/willSave`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub will_save: Option<bool>,
+    /// The client sends `textDocument/willSaveWaitUntil` and applies the
+    /// returned edits before saving.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub will_save_wait_until: Option<bool>,
+    /// The client sends `textDocument/didSave`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub did_save: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.completion`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionClientCapabilities {
+    /// Whether the client supports dynamic registration for completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// Capabilities specific to an individual `CompletionItem`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_item: Option<CompletionItemCapability>,
+    /// Which `CompletionItemKind`s the client understands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_item_kind: Option<CompletionItemKindCapability>,
+    /// The insert-text mode the client uses when the server doesn't specify
+    /// one on an item (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert_text_mode: Option<InsertTextMode>,
+    /// The client sends `CompletionContext` (how completion was triggered)
+    /// with its requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_support: Option<bool>,
+    /// Capabilities specific to `CompletionList` (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_list: Option<CompletionListCapability>,
+}
+
+/// `ClientCapabilities.textDocument.completion.completionItem`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionItemCapability {
+    /// The client interprets `CompletionItem::insert_text`/`text_edit` as an
+    /// LSP snippet when `insert_text_format` says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snippet_support: Option<bool>,
+    /// The client supports `CompletionItem::commit_characters`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_characters_support: Option<bool>,
+    /// Markup kinds the client accepts for `CompletionItem::documentation`,
+    /// in decreasing preference order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub documentation_format: Vec<MarkupKind>,
+    /// The client supports `CompletionItem::deprecated`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated_support: Option<bool>,
+    /// The client supports `CompletionItem::preselect`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preselect_support: Option<bool>,
+    /// Which `CompletionItemTag`s the client understands (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_support: Option<TagSupportCapability<CompletionItemTag>>,
+    /// The client supports `CompletionItem::text_edit` being an
+    /// `InsertReplaceEdit` (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert_replace_support: Option<bool>,
+    /// Which `CompletionItem` properties the client can resolve lazily via
+    /// `completionItem/resolve` (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolve_support: Option<ResolveSupportCapability>,
+    /// Which `InsertTextMode`s the client honors on a per-item basis
+    /// (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert_text_mode_support: Option<InsertTextModeSupportCapability>,
+    /// The client renders `CompletionItem::label_details` (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_details_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.completion.completionItem.insertTextModeSupport`
+/// (LSP 3.16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertTextModeSupportCapability {
+    /// The `InsertTextMode`s the client honors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub value_set: Vec<InsertTextMode>,
+}
+
+/// `ClientCapabilities.textDocument.completion.completionItemKind`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionItemKindCapability {
+    /// The `CompletionItemKind`s the client understands. Absent means the
+    /// client only understands the original LSP 1.0 range (`Text` through
+    /// `Reference`); a server should degrade unknown kinds outside the set
+    /// the client reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_set: Option<Vec<CompletionItemKind>>,
+}
+
+/// `ClientCapabilities.textDocument.completion.completionList` (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionListCapability {
+    /// Which `CompletionList::item_defaults` keys the client understands.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub item_defaults: Vec<String>,
+}
+
+/// `ClientCapabilities.textDocument.hover`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HoverClientCapabilities {
+    /// Whether the client supports dynamic registration for hover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// Markup kinds the client accepts for `Hover::contents`, in decreasing
+    /// preference order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_format: Vec<MarkupKind>,
+}
+
+/// `ClientCapabilities.textDocument.signatureHelp`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureHelpClientCapabilities {
+    /// Whether the client supports dynamic registration for signature help.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// Capabilities specific to `SignatureInformation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_information: Option<SignatureInformationCapability>,
+    /// The client sends `SignatureHelpContext` with its requests (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.signatureHelp.signatureInformation`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureInformationCapability {
+    /// Markup kinds the client accepts for
+    /// `SignatureInformation::documentation`, in decreasing preference
+    /// order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub documentation_format: Vec<MarkupKind>,
+    /// Capabilities specific to `ParameterInformation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_information: Option<ParameterInformationCapability>,
+    /// The client highlights `SignatureHelp::active_parameter` even when a
+    /// signature has no `parameters` of its own (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_parameter_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.signatureHelp.signatureInformation.parameterInformation`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParameterInformationCapability {
+    /// The client supports `ParameterInformation::label` as a
+    /// `[start, end)` UTF-16 offset pair into the signature's label, instead
+    /// of a plain substring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_offset_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.documentSymbol`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSymbolClientCapabilities {
+    /// Whether the client supports dynamic registration for document
+    /// symbols.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// Which `SymbolKind`s the client understands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_kind: Option<SymbolKindCapability>,
+    /// The client renders `DocumentSymbol`'s nested `children` as a tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hierarchical_document_symbol_support: Option<bool>,
+    /// Which `SymbolTag`s the client understands (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_support: Option<TagSupportCapability<SymbolTag>>,
+    /// The client renders `DocumentSymbol::detail` as a label (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_support: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,5 +825,123 @@ mod tests {
     fn notebook_document_client_capabilities_defaults_on_empty_object() {
         let caps: NotebookDocumentClientCapabilities = serde_json::from_value(json!({})).unwrap();
         assert_eq!(caps, NotebookDocumentClientCapabilities::default());
+    }
+
+    #[test]
+    fn text_document_client_capabilities_parses_a_realistic_payload() {
+        let value = json!({
+            "synchronization": {"dynamicRegistration": true, "didSave": true},
+            "completion": {
+                "completionItem": {
+                    "snippetSupport": true,
+                    "documentationFormat": ["markdown", "plaintext"],
+                    "tagSupport": {"valueSet": [1]},
+                    "resolveSupport": {"properties": ["documentation"]},
+                    "insertTextModeSupport": {"valueSet": [1, 2]},
+                    "labelDetailsSupport": true,
+                },
+                "completionItemKind": {"valueSet": [1, 2, 3]},
+                "insertTextMode": 2,
+                "contextSupport": true,
+                "completionList": {"itemDefaults": ["editRange", "insertTextFormat"]},
+            },
+            "hover": {"contentFormat": ["markdown"]},
+            "signatureHelp": {
+                "signatureInformation": {
+                    "documentationFormat": ["markdown"],
+                    "parameterInformation": {"labelOffsetSupport": true},
+                    "activeParameterSupport": true,
+                },
+                "contextSupport": true,
+            },
+            "declaration": {"dynamicRegistration": true, "linkSupport": true},
+            "definition": {"linkSupport": true},
+            "references": {"dynamicRegistration": true},
+            "documentHighlight": {"dynamicRegistration": true},
+            "documentSymbol": {
+                "hierarchicalDocumentSymbolSupport": true,
+                "tagSupport": {"valueSet": [1]},
+                "labelSupport": true,
+            },
+        });
+        let caps: TextDocumentClientCapabilities = serde_json::from_value(value).unwrap();
+
+        let sync = caps.synchronization.unwrap();
+        assert_eq!(sync.dynamic_registration, Some(true));
+        assert_eq!(sync.did_save, Some(true));
+
+        let completion = caps.completion.unwrap();
+        let item = completion.completion_item.unwrap();
+        assert_eq!(item.snippet_support, Some(true));
+        assert_eq!(
+            item.documentation_format,
+            vec![MarkupKind::Markdown, MarkupKind::PlainText]
+        );
+        assert_eq!(
+            item.tag_support.unwrap().value_set,
+            vec![CompletionItemTag::Deprecated]
+        );
+        assert_eq!(
+            item.resolve_support.unwrap().properties,
+            vec!["documentation".to_owned()]
+        );
+        assert_eq!(
+            item.insert_text_mode_support.unwrap().value_set,
+            vec![InsertTextMode::AsIs, InsertTextMode::AdjustIndentation]
+        );
+        assert_eq!(item.label_details_support, Some(true));
+        assert_eq!(
+            completion.completion_item_kind.unwrap().value_set,
+            Some(vec![
+                CompletionItemKind::Text,
+                CompletionItemKind::Method,
+                CompletionItemKind::Function
+            ])
+        );
+        assert_eq!(
+            completion.insert_text_mode,
+            Some(InsertTextMode::AdjustIndentation)
+        );
+        assert_eq!(completion.context_support, Some(true));
+        assert_eq!(
+            completion.completion_list.unwrap().item_defaults,
+            vec!["editRange".to_owned(), "insertTextFormat".to_owned()]
+        );
+
+        let hover = caps.hover.unwrap();
+        assert_eq!(hover.content_format, vec![MarkupKind::Markdown]);
+
+        let sig_help = caps.signature_help.unwrap();
+        let sig_info = sig_help.signature_information.unwrap();
+        assert_eq!(sig_info.documentation_format, vec![MarkupKind::Markdown]);
+        assert_eq!(
+            sig_info.parameter_information.unwrap().label_offset_support,
+            Some(true)
+        );
+        assert_eq!(sig_info.active_parameter_support, Some(true));
+        assert_eq!(sig_help.context_support, Some(true));
+
+        assert_eq!(caps.declaration.unwrap().link_support, Some(true));
+        assert_eq!(caps.definition.unwrap().link_support, Some(true));
+        assert_eq!(caps.type_definition, None);
+        assert_eq!(caps.references.unwrap().dynamic_registration, Some(true));
+        assert_eq!(
+            caps.document_highlight.unwrap().dynamic_registration,
+            Some(true)
+        );
+
+        let doc_symbol = caps.document_symbol.unwrap();
+        assert_eq!(doc_symbol.hierarchical_document_symbol_support, Some(true));
+        assert_eq!(
+            doc_symbol.tag_support.unwrap().value_set,
+            vec![SymbolTag::Deprecated]
+        );
+        assert_eq!(doc_symbol.label_support, Some(true));
+    }
+
+    #[test]
+    fn text_document_client_capabilities_defaults_on_empty_object() {
+        let caps: TextDocumentClientCapabilities = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(caps, TextDocumentClientCapabilities::default());
     }
 }
