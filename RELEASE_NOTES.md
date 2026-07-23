@@ -39,6 +39,13 @@ Entries accumulate here until the next version bump.
   semantic tokens, linked-editing range, moniker, type hierarchy, inline
   value, inlay hint, diagnostic) — every `ClientCapabilities.textDocument.*`
   group the spec defines is now a typed field somewhere on this accessor.
+- Dynamic registration (`client/registerCapability`) gets typed builders for
+  the methods that previously needed hand-built JSON: `Registration::for_*`
+  for semantic tokens, diagnostics, call hierarchy, type hierarchy, and nine
+  simpler methods (declaration, type definition, implementation, document
+  color, folding range, selection range, moniker, linked editing range,
+  inline value) sharing one options shape. The raw-JSON `Registration::new`
+  escape hatch still works for anything not covered.
 
 ---
 
