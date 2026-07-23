@@ -12,10 +12,12 @@
 //! than erroring — client-supplied data is untrusted, and a slightly-off
 //! capability announcement shouldn't be able to crash a server.
 
+use super::code_action::CodeActionKind;
 use super::enums::{
-    CompletionItemKind, CompletionItemTag, InsertTextMode, MarkupKind, PositionEncodingKind,
-    SymbolKind, SymbolTag,
+    CompletionItemKind, CompletionItemTag, DiagnosticTag, InsertTextMode, MarkupKind,
+    PositionEncodingKind, PrepareSupportDefaultBehavior, SymbolKind, SymbolTag,
 };
+use super::ranges::FoldingRangeKind;
 use serde::{Deserialize, Serialize};
 
 /// The common `{ dynamicRegistration?: boolean }` shape shared by many
@@ -412,9 +414,10 @@ pub struct GotoClientCapabilities {
 /// `ClientCapabilities.textDocument`: capabilities specific to a single
 /// document, as opposed to the workspace as a whole. Extended by later
 /// typed-capability work to cover the full spec surface; this module
-/// currently models the core, most commonly-probed subset (document sync,
-/// completion, hover, signature help, the "go to" family, references,
-/// document highlight, and document symbol).
+/// currently models: document sync, completion, hover, signature help, the
+/// "go to" family, references, document highlight, document symbol, code
+/// action, code lens, document link, color provider, the formatting family,
+/// rename, folding range, selection range, and publish-diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentClientCapabilities {
@@ -452,6 +455,40 @@ pub struct TextDocumentClientCapabilities {
     /// `textDocument/documentSymbol` capabilities.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_symbol: Option<DocumentSymbolClientCapabilities>,
+    /// `textDocument/codeAction` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_action: Option<CodeActionClientCapabilities>,
+    /// `textDocument/codeLens` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_lens: Option<DynamicRegistrationCapability>,
+    /// `textDocument/documentLink` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_link: Option<DocumentLinkClientCapabilities>,
+    /// `textDocument/documentColor`/`colorPresentation` capabilities
+    /// (LSP 3.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_provider: Option<DynamicRegistrationCapability>,
+    /// `textDocument/formatting` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formatting: Option<DynamicRegistrationCapability>,
+    /// `textDocument/rangeFormatting` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_formatting: Option<DynamicRegistrationCapability>,
+    /// `textDocument/onTypeFormatting` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_type_formatting: Option<DynamicRegistrationCapability>,
+    /// `textDocument/rename` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rename: Option<RenameClientCapabilities>,
+    /// `textDocument/foldingRange` capabilities (LSP 3.10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folding_range: Option<FoldingRangeClientCapabilities>,
+    /// `textDocument/selectionRange` capabilities (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_range: Option<DynamicRegistrationCapability>,
+    /// `textDocument/publishDiagnostics` capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
 }
 
 /// `ClientCapabilities.textDocument.synchronization`.
@@ -648,6 +685,155 @@ pub struct DocumentSymbolClientCapabilities {
     /// The client renders `DocumentSymbol::detail` as a label (LSP 3.16).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.codeAction`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionClientCapabilities {
+    /// Whether the client supports dynamic registration for code actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client can restrict a request to specific `CodeActionKind`s and
+    /// group results by kind (LSP 3.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_action_literal_support: Option<CodeActionLiteralSupportCapability>,
+    /// The client renders `CodeAction::is_preferred` (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_preferred_support: Option<bool>,
+    /// The client renders `CodeAction::disabled` (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled_support: Option<bool>,
+    /// The client round-trips `CodeAction::data` through
+    /// `codeAction/resolve` (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_support: Option<bool>,
+    /// Which `CodeAction` properties the client can resolve lazily via
+    /// `codeAction/resolve` (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolve_support: Option<ResolveSupportCapability>,
+    /// The client applies `WorkspaceEdit::change_annotations` from a
+    /// resolved code action (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub honors_change_annotations: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.codeAction.codeActionLiteralSupport`
+/// (LSP 3.8).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionLiteralSupportCapability {
+    /// Which `CodeActionKind`s the client understands.
+    #[serde(default)]
+    pub code_action_kind: CodeActionKindCapability,
+}
+
+/// `ClientCapabilities.textDocument.codeAction.codeActionLiteralSupport.codeActionKind`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionKindCapability {
+    /// The `CodeActionKind`s the client understands.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub value_set: Vec<CodeActionKind>,
+}
+
+/// `ClientCapabilities.textDocument.documentLink`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLinkClientCapabilities {
+    /// Whether the client supports dynamic registration for document links.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client shows `DocumentLink::tooltip` (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tooltip_support: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.rename`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameClientCapabilities {
+    /// Whether the client supports dynamic registration for rename.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The client sends `textDocument/prepareRename` before renaming
+    /// (LSP 3.12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepare_support: Option<bool>,
+    /// Which `prepareRename` "default behavior" variants the client
+    /// understands (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepare_support_default_behavior: Option<PrepareSupportDefaultBehavior>,
+    /// The client applies `WorkspaceEdit::change_annotations` from a rename
+    /// edit (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub honors_change_annotations: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.foldingRange` (LSP 3.10).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRangeClientCapabilities {
+    /// Whether the client supports dynamic registration for folding ranges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_registration: Option<bool>,
+    /// The maximum number of folding ranges the client renders per
+    /// document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_limit: Option<u32>,
+    /// The client only folds whole lines, ignoring `FoldingRange`'s
+    /// character offsets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_folding_only: Option<bool>,
+    /// Which `FoldingRangeKind`s the client understands (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folding_range_kind: Option<FoldingRangeKindCapability>,
+    /// The client's support for `FoldingRange::collapsed_text` (LSP 3.17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folding_range: Option<FoldingRangeCollapsedTextCapability>,
+}
+
+/// `ClientCapabilities.textDocument.foldingRange.foldingRangeKind`
+/// (LSP 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRangeKindCapability {
+    /// The `FoldingRangeKind`s the client understands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_set: Option<Vec<FoldingRangeKind>>,
+}
+
+/// `ClientCapabilities.textDocument.foldingRange.foldingRange` (LSP 3.17) —
+/// yes, the spec nests a member with the same name as its parent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRangeCollapsedTextCapability {
+    /// The client renders `FoldingRange::collapsed_text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapsed_text: Option<bool>,
+}
+
+/// `ClientCapabilities.textDocument.publishDiagnostics`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishDiagnosticsClientCapabilities {
+    /// The client renders `Diagnostic::related_information`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related_information: Option<bool>,
+    /// Which `DiagnosticTag`s the client understands (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_support: Option<TagSupportCapability<DiagnosticTag>>,
+    /// The client resets diagnostics when a document's version moves past
+    /// the version a diagnostic was published for (LSP 3.15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_support: Option<bool>,
+    /// The client renders `Diagnostic::code_description` (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_description_support: Option<bool>,
+    /// The client round-trips `Diagnostic::data` back to the server
+    /// (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_support: Option<bool>,
 }
 
 #[cfg(test)]
@@ -943,5 +1129,111 @@ mod tests {
     fn text_document_client_capabilities_defaults_on_empty_object() {
         let caps: TextDocumentClientCapabilities = serde_json::from_value(json!({})).unwrap();
         assert_eq!(caps, TextDocumentClientCapabilities::default());
+    }
+
+    #[test]
+    fn text_document_client_capabilities_parses_advanced_group_a() {
+        let value = json!({
+            "codeAction": {
+                "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor"]}},
+                "isPreferredSupport": true,
+                "disabledSupport": true,
+                "dataSupport": true,
+                "resolveSupport": {"properties": ["edit"]},
+                "honorsChangeAnnotations": true,
+            },
+            "codeLens": {"dynamicRegistration": true},
+            "documentLink": {"tooltipSupport": true},
+            "colorProvider": {"dynamicRegistration": true},
+            "formatting": {"dynamicRegistration": true},
+            "rangeFormatting": {"dynamicRegistration": true},
+            "onTypeFormatting": {"dynamicRegistration": true},
+            "rename": {
+                "prepareSupport": true,
+                "prepareSupportDefaultBehavior": 1,
+                "honorsChangeAnnotations": true,
+            },
+            "foldingRange": {
+                "rangeLimit": 5000,
+                "lineFoldingOnly": true,
+                "foldingRangeKind": {"valueSet": ["comment", "region"]},
+                "foldingRange": {"collapsedText": true},
+            },
+            "selectionRange": {"dynamicRegistration": true},
+            "publishDiagnostics": {
+                "relatedInformation": true,
+                "tagSupport": {"valueSet": [1, 2]},
+                "versionSupport": true,
+                "codeDescriptionSupport": true,
+                "dataSupport": true,
+            },
+        });
+        let caps: TextDocumentClientCapabilities = serde_json::from_value(value).unwrap();
+
+        let code_action = caps.code_action.unwrap();
+        assert_eq!(
+            code_action
+                .code_action_literal_support
+                .unwrap()
+                .code_action_kind
+                .value_set,
+            vec!["quickfix".to_owned(), "refactor".to_owned()]
+        );
+        assert_eq!(code_action.is_preferred_support, Some(true));
+        assert_eq!(code_action.disabled_support, Some(true));
+        assert_eq!(code_action.data_support, Some(true));
+        assert_eq!(
+            code_action.resolve_support.unwrap().properties,
+            vec!["edit".to_owned()]
+        );
+        assert_eq!(code_action.honors_change_annotations, Some(true));
+
+        assert_eq!(caps.code_lens.unwrap().dynamic_registration, Some(true));
+        assert_eq!(caps.document_link.unwrap().tooltip_support, Some(true));
+        assert_eq!(
+            caps.color_provider.unwrap().dynamic_registration,
+            Some(true)
+        );
+        assert_eq!(caps.formatting.unwrap().dynamic_registration, Some(true));
+        assert_eq!(
+            caps.range_formatting.unwrap().dynamic_registration,
+            Some(true)
+        );
+        assert_eq!(
+            caps.on_type_formatting.unwrap().dynamic_registration,
+            Some(true)
+        );
+
+        let rename = caps.rename.unwrap();
+        assert_eq!(rename.prepare_support, Some(true));
+        assert_eq!(
+            rename.prepare_support_default_behavior,
+            Some(PrepareSupportDefaultBehavior::Identifier)
+        );
+        assert_eq!(rename.honors_change_annotations, Some(true));
+
+        let folding = caps.folding_range.unwrap();
+        assert_eq!(folding.range_limit, Some(5000));
+        assert_eq!(folding.line_folding_only, Some(true));
+        assert_eq!(
+            folding.folding_range_kind.unwrap().value_set,
+            Some(vec!["comment".to_owned(), "region".to_owned()])
+        );
+        assert_eq!(folding.folding_range.unwrap().collapsed_text, Some(true));
+
+        assert_eq!(
+            caps.selection_range.unwrap().dynamic_registration,
+            Some(true)
+        );
+
+        let diagnostics = caps.publish_diagnostics.unwrap();
+        assert_eq!(diagnostics.related_information, Some(true));
+        assert_eq!(
+            diagnostics.tag_support.unwrap().value_set,
+            vec![DiagnosticTag::Unnecessary, DiagnosticTag::Deprecated]
+        );
+        assert_eq!(diagnostics.version_support, Some(true));
+        assert_eq!(diagnostics.code_description_support, Some(true));
+        assert_eq!(diagnostics.data_support, Some(true));
     }
 }
