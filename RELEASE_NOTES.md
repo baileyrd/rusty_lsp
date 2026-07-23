@@ -32,6 +32,9 @@ Entries accumulate here until the next version bump.
   core, most-probed groups: sync, completion, hover, signature help,
   the go-to-definition family, references, document highlight, and
   document symbol. The rest of `textDocument.*` follows in later work.
+- `.text_document()` grows nine more groups: code action, code lens,
+  document link, color provider, the formatting family, rename, folding
+  range, selection range, and publish-diagnostics.
 
 ---
 

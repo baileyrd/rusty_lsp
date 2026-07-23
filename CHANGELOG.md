@@ -51,6 +51,20 @@ each release.
   remaining `textDocument.*` groups (code action, code lens, semantic
   tokens, etc.) are tracked as follow-up work; `raw`/`get`/`supports` are
   unchanged.
+- `enums::PrepareSupportDefaultBehavior` (LSP 3.16): `Identifier`, needed to
+  model `textDocument.rename`'s `prepareSupportDefaultBehavior` capability.
+- `TextDocumentClientCapabilities` grows nine more groups: `codeAction`
+  (literal-kind/preferred/disabled/data/resolve support, change-annotation
+  honoring), `codeLens`, `documentLink` (including tooltip support),
+  `colorProvider`, `formatting`/`rangeFormatting`/`onTypeFormatting`,
+  `rename` (prepare support and its default-behavior variants),
+  `foldingRange` (range limit, line-folding-only, kind/collapsed-text
+  support), `selectionRange`, and `publishDiagnostics` (related
+  information, tag/version/code-description/data support). First of two
+  follow-ups extending `ClientCapabilities::text_document()` beyond its
+  core set; the remaining groups (call hierarchy, semantic tokens,
+  linked-editing range, moniker, type hierarchy, inline value, inlay
+  hint, diagnostic) follow separately.
 
 ## [0.6.2] — 2026-07-17
 

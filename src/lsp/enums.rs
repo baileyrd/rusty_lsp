@@ -353,6 +353,18 @@ int_enum! {
 }
 
 int_enum! {
+    /// What a client falls back to when `textDocument/prepareRename` returns
+    /// its "default behavior" response variant instead of an explicit range
+    /// (LSP 3.16), advertised via
+    /// `ClientCapabilities.textDocument.rename.prepareSupportDefaultBehavior`.
+    pub enum PrepareSupportDefaultBehavior {
+        /// The client selects the identifier under the cursor by its own
+        /// word-boundary rules.
+        Identifier = 1,
+    }
+}
+
+int_enum! {
     /// A tag qualifying a [`crate::lsp::Diagnostic`], letting clients render
     /// it specially (faded, struck through) instead of squiggling it.
     pub enum DiagnosticTag {
