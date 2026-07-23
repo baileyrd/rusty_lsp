@@ -2,7 +2,10 @@
 //! capability negotiation that rides along with them.
 
 use super::base::Uri;
-use super::client_capabilities::WorkspaceClientCapabilities;
+use super::client_capabilities::{
+    GeneralClientCapabilities, NotebookDocumentClientCapabilities, WindowClientCapabilities,
+    WorkspaceClientCapabilities,
+};
 use super::code_lens::CodeLensOptions;
 use super::diagnostics::DiagnosticOptions;
 use super::enums::PositionEncodingKind;
@@ -242,6 +245,36 @@ mod tests {
             WorkspaceClientCapabilities::default()
         );
     }
+
+    #[test]
+    fn window_general_notebook_accessors_parse_their_subtrees() {
+        let caps: ClientCapabilities = serde_json::from_value(json!({
+            "window": {"workDoneProgress": true},
+            "general": {"positionEncodings": ["utf-8"]},
+            "notebookDocument": {"synchronization": {"dynamicRegistration": true}},
+        }))
+        .unwrap();
+
+        assert_eq!(caps.window().work_done_progress, Some(true));
+        assert_eq!(
+            caps.general().position_encodings,
+            vec![PositionEncodingKind::Utf8]
+        );
+        assert_eq!(
+            caps.notebook_document()
+                .synchronization
+                .dynamic_registration,
+            Some(true)
+        );
+
+        let empty = ClientCapabilities::default();
+        assert_eq!(empty.window(), WindowClientCapabilities::default());
+        assert_eq!(empty.general(), GeneralClientCapabilities::default());
+        assert_eq!(
+            empty.notebook_document(),
+            NotebookDocumentClientCapabilities::default()
+        );
+    }
 }
 
 /// Information about the client implementation.
@@ -347,6 +380,41 @@ impl ClientCapabilities {
     pub fn workspace(&self) -> WorkspaceClientCapabilities {
         self.raw
             .get("workspace")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    /// Parse the `window` sub-object into a typed
+    /// [`WindowClientCapabilities`] — see [`workspace`](Self::workspace) for
+    /// the rationale and error-tolerance behavior, which apply identically
+    /// here.
+    pub fn window(&self) -> WindowClientCapabilities {
+        self.raw
+            .get("window")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    /// Parse the `general` sub-object into a typed
+    /// [`GeneralClientCapabilities`] — see [`workspace`](Self::workspace)
+    /// for the rationale and error-tolerance behavior, which apply
+    /// identically here. For just the position-encoding preference list
+    /// (with the spec's "absent means `[utf-16]`" default already applied),
+    /// prefer [`position_encodings`](Self::position_encodings).
+    pub fn general(&self) -> GeneralClientCapabilities {
+        self.raw
+            .get("general")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    /// Parse the `notebookDocument` sub-object into a typed
+    /// [`NotebookDocumentClientCapabilities`] — see
+    /// [`workspace`](Self::workspace) for the rationale and error-tolerance
+    /// behavior, which apply identically here.
+    pub fn notebook_document(&self) -> NotebookDocumentClientCapabilities {
+        self.raw
+            .get("notebookDocument")
             .and_then(|value| serde_json::from_value(value.clone()).ok())
             .unwrap_or_default()
     }

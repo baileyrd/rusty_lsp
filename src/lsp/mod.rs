@@ -46,9 +46,13 @@ pub use base::{
 pub use client_capabilities::{
     ChangeAnnotationSupportCapability, DidChangeWatchedFilesClientCapabilities,
     DynamicRegistrationCapability, FailureHandlingKind, FileOperationClientCapabilities,
-    RefreshSupportCapability, ResolveSupportCapability, ResourceOperationKind,
-    SymbolKindCapability, TagSupportCapability, WorkspaceClientCapabilities,
-    WorkspaceEditClientCapabilities, WorkspaceSymbolClientCapabilities,
+    GeneralClientCapabilities, MarkdownClientCapabilities, MessageActionItemCapability,
+    NotebookDocumentClientCapabilities, NotebookDocumentSyncClientCapabilities,
+    RefreshSupportCapability, RegularExpressionsClientCapabilities, ResolveSupportCapability,
+    ResourceOperationKind, ShowDocumentClientCapabilities, ShowMessageClientCapabilities,
+    StaleRequestSupportCapability, SymbolKindCapability, TagSupportCapability,
+    WindowClientCapabilities, WorkspaceClientCapabilities, WorkspaceEditClientCapabilities,
+    WorkspaceSymbolClientCapabilities,
 };
 pub use code_action::{
     CodeAction, CodeActionContext, CodeActionDisabled, CodeActionKind, CodeActionOptions,
