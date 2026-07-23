@@ -73,7 +73,7 @@ impl LanguageServer for TestBackend {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncKind::Full.into()),
-                hover_provider: Some(true),
+                hover_provider: Some(true.into()),
                 completion_provider: Some(CompletionOptions::default()),
                 ..Default::default()
             },

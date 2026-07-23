@@ -18,6 +18,19 @@ pub struct DocumentSymbolParams {
     pub partial_result: PartialResultParams,
 }
 
+/// Options describing the server's `textDocument/documentSymbol` support.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSymbolOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
+    /// A human-readable label for this symbol source, shown when a client
+    /// merges results from multiple document-symbol providers (LSP 3.16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 /// The result of a `textDocument/documentSymbol` request: either the modern
 /// hierarchical form ([`DocumentSymbol`], preferred — nests methods inside
 /// classes, etc.) or the older flat form ([`SymbolInformation`]).
@@ -300,6 +313,22 @@ mod tests {
         };
         let value = serde_json::to_value(&params).unwrap();
         assert_eq!(value, json!({"textDocument": {"uri": "file:///a"}}));
+    }
+
+    #[test]
+    fn document_symbol_options_advertise_label_and_work_done_progress() {
+        let options = DocumentSymbolOptions {
+            work_done_progress: Some(true),
+            label: Some("Rust Analyzer".to_owned()),
+        };
+        assert_eq!(
+            serde_json::to_value(&options).unwrap(),
+            json!({"workDoneProgress": true, "label": "Rust Analyzer"})
+        );
+        assert_eq!(
+            serde_json::to_value(DocumentSymbolOptions::default()).unwrap(),
+            json!({})
+        );
     }
 }
 

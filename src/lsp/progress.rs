@@ -139,6 +139,20 @@ pub struct WorkDoneProgressParams {
     pub work_done_token: Option<ProgressToken>,
 }
 
+/// The server-capability counterpart of [`WorkDoneProgressParams`]: mixed
+/// into a `ServerCapabilities` provider-options struct (e.g.
+/// [`crate::lsp::HoverProviderCapability`]'s `Options` variant) to advertise
+/// that the provider reports work-done progress. Several capability options
+/// the spec defines add nothing beyond this single field, so this one struct
+/// is shared across all of them rather than duplicated per method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkDoneProgressOptions {
+    /// Whether the server reports work-done progress for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_done_progress: Option<bool>,
+}
+
 /// Mixin flattened into a "list" request's params to opt it into streaming
 /// partial results: when `partial_result_token` is set, the server may send
 /// zero or more `$/progress` notifications on that token — each carrying a
@@ -213,6 +227,21 @@ mod tests {
             })
             .unwrap(),
             json!({"partialResultToken": 2})
+        );
+    }
+
+    #[test]
+    fn work_done_progress_options_omits_when_absent() {
+        assert_eq!(
+            serde_json::to_value(WorkDoneProgressOptions::default()).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            serde_json::to_value(WorkDoneProgressOptions {
+                work_done_progress: Some(true),
+            })
+            .unwrap(),
+            json!({"workDoneProgress": true})
         );
     }
 }

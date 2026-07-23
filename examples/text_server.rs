@@ -72,8 +72,8 @@ impl LanguageServer for TextServer {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncKind::Incremental.into()),
-                hover_provider: Some(true),
-                document_highlight_provider: Some(true),
+                hover_provider: Some(true.into()),
+                document_highlight_provider: Some(true.into()),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     ..Default::default()

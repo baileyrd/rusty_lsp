@@ -17,7 +17,7 @@ impl LanguageServer for Backend {
     async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                hover_provider: Some(true),
+                hover_provider: Some(true.into()),
                 ..Default::default()
             },
             server_info: None,
@@ -59,7 +59,7 @@ async fn test_client_drives_the_full_lifecycle() {
         .initialize(InitializeParams::default())
         .await
         .expect("initialize");
-    assert_eq!(init.capabilities.hover_provider, Some(true));
+    assert_eq!(init.capabilities.hover_provider, Some(true.into()));
 
     // The `initialized` hook fired and its notification is retrievable even
     // after other traffic.
@@ -163,6 +163,6 @@ async fn spawn_configured_applies_server_options() {
         .initialize(InitializeParams::default())
         .await
         .expect("initialize under a concurrency cap");
-    assert_eq!(init.capabilities.hover_provider, Some(true));
+    assert_eq!(init.capabilities.hover_provider, Some(true.into()));
     client.shutdown_and_exit().await.expect("clean teardown");
 }
