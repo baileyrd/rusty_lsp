@@ -1,5 +1,13 @@
 # rusty_lsp
 
+> **This repo has moved.** `rusty_lsp` now lives at
+> [`crates/rusty_lsp`](https://github.com/Rusty-Mill/rusty_mill/tree/main/crates/rusty_lsp)
+> in the [`rusty_mill`](https://github.com/Rusty-Mill/rusty_mill) monorepo,
+> merged in with its full commit history via `git subtree`. This repo is
+> kept for historical reference (issues, PRs, prior releases) but is no
+> longer where development happens -- open new issues and PRs against
+> `rusty_mill` instead.
+
 A small, reusable [Language Server Protocol][lsp] framework for async Rust.
 
 `rusty_lsp` owns the protocol plumbing — JSON-RPC framing, message dispatch, the
